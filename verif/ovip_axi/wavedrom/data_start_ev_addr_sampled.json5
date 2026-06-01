@@ -1,0 +1,15 @@
+{
+ // data_start_event    = OVIP_AXI_DATA_START_EV_ADDR_SAMPLED
+ signal: [
+  {name: 'clk', wave: 'p......'},
+ 
+   {name: 'awvalid', wave: '01..0..', node: '....1'},
+   {name: 'awready', wave: '0..1...',},
+  
+   {name: 'wvalid',  wave: '0.....1', node: '......2'},
+  {name: 'wready',  wave: 'x......'},
+ ],
+   edge:[
+   '1->2 data_delay[0] = 2'
+ ],
+  }

@@ -1,0 +1,56 @@
+# Editor / OS
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+
+# Regression / sim artifacts (in-tree under sim/)
+sim/
+regression/
+tr_db.log
+
+# Modelsim / Questa
+work/
+transcript
+*.wlf
+*.vstf
+vsim.dbg
+modelsim.ini
+.modelsim.ini
+
+# VCS
+csrc/
+simv
+simv.daidir/
+simv.vdb/
+ucli.key
+vc_hdrs.h
+inter.vpd
+DVEfiles/
+*.vpd
+
+# Xcelium / NCSim
+xcelium.d/
+xrun.log
+xrun.history
+INCA_libs/
+irun.log
+irun.history
+
+# Common waveform / coverage dumps
+*.vcd
+*.fsdb
+*.shm/
+cov_work/
+coverage.ucdb
+ucdb_done
+*.ucdb
+
+# Bundle script output (default location)
+eda_bundle/

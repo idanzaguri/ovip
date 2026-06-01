@@ -1,0 +1,24 @@
+{
+ // basic read transaction timing
+ signal: [
+   {name: 'clk', wave: 'p...........'},{},
+   
+   {name: 'arvalid',  wave: '010......1.0', node: '..a......b'},
+   {name: 'araddr',  wave: 'x3x......4.x', data: ["'h100","addr"]},   
+   {name: 'arlen',  wave: 'x3x......4.x', data: ["2","len"], node: "..0"},   
+   {name: 'arready', wave: '1...0.....1.'},
+   {},
+   {name: 'rvalid',  wave: '0...101....0', node:'....1234..5'},
+   {name: 'rdata',  wave: 'x...3x3...3x', data:["T1","T2","T3"], node:"."},
+   {name: 'rlast',  wave: '0........1.0'},
+   {name: 'rready',  wave: '1.....0..1..'},
+ ],
+   edge:[
+   'a->b delay_until_next_addr = 7',
+   '0~->1 data_delay[0]=2',
+   '2->3',
+   '4->5'
+ ],
+foot: {text:
+       ['tspan', "data_delay='{2,1,0}"]
+}  }

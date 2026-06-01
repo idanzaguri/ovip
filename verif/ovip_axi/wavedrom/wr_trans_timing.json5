@@ -1,0 +1,28 @@
+{
+ // basic write transaction timing
+ signal: [
+   {name: 'clk', wave: 'p...........'},{},
+   
+   {name: 'awvalid',  wave: '010......1.0', node: '..a......b'},
+   {name: 'awaddr',  wave: 'x3x......4.x', data: ["'h100","addr"]},   
+   {name: 'awlen',  wave: 'x3x......4.x', data: ["2","len"], node: "..0"},   
+   {name: 'awready', wave: '1...0.....1.'},
+   {},
+   {name: 'wvalid',  wave: '0.101...0...', node:'..12345'},
+   {name: 'wdata',  wave: 'x.3x3.3.x...', data:["T1","T2","T3"], node:"."},
+   {name: 'wlast',  wave: '0.....1.0...',node:'........w'},
+   {name: 'wready',  wave: '1...0101....'},
+   {},
+   {name: 'bvalid',  wave: '0.........1.', node:'..........r'},
+   {name: 'bready',  wave: '0..........1'},
+ ],
+   edge:[
+   'a->b delay_until_next_addr = 7',
+   '0->1 data_delay[0]=0',
+   '2->3',
+   '4->5',
+   'w~->r bresp_delay=2'
+ ],
+foot: {text:
+       ['tspan', "data_delay='{0,1,1}"]
+}  }
