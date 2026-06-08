@@ -70,7 +70,7 @@ Initial public release.
   `-f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f` to their existing compile step.
   See the README "Integrating into your environment" section.
 - Cross-simulator portability: Modelsim/Questa, VCS, Xcelium all supported.
-- `examples/01_minimal_loopback/` — self-contained hello-world with a
+- `examples/ovip_axi/01_minimal_loopback/` — self-contained hello-world with a
   multi-simulator `Makefile`. No external dependencies beyond a UVM-1.2
   simulator.
 

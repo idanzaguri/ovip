@@ -39,7 +39,7 @@ export OVIP_ROOT=/path/to/ovip
 
 UVM 1.2 comes from your simulator's built-in library. Apply any [Compile-Time Defines](#compile-time-defines) below as additional `+define+...` arguments on the same compile line.
 
-The minimal runnable example is [`examples/05_axi_stream_loopback/`](../../examples/05_axi_stream_loopback/); for the receiver-into-memory pipeline see [`examples/06_axi_stream_rx_to_mem/`](../../examples/06_axi_stream_rx_to_mem/).
+The minimal runnable example is [`examples/ovip_axi_stream/01_loopback/`](../../examples/ovip_axi_stream/01_loopback/); for the receiver-into-memory pipeline see [`examples/ovip_axi_stream/02_rx_to_mem/`](../../examples/ovip_axi_stream/02_rx_to_mem/).
 
 ## Compile-Time Defines
 

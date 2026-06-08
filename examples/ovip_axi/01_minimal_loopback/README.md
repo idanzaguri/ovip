@@ -29,7 +29,7 @@ make SIM=xcelium
 make clean
 ```
 
-The Makefile assumes `vlog`/`vsim` / `vcs` / `xrun` are on your `PATH`. The example pulls the VIP sources directly from `../../verif/ovip_axi/src/` via `+incdir+`.
+The Makefile assumes `vlog`/`vsim` / `vcs` / `xrun` are on your `PATH`. The example pulls the VIP sources directly from `../../../verif/ovip_axi/src/` via `+incdir+`.
 
 > **Free simulator:** this example has been validated on **Modelsim** (the Intel/Altera FPGA Starter Edition is free). The VCS and Xcelium targets are provided for users who already have a commercial license — they're wired up but not validated as part of every change.
 
@@ -37,4 +37,4 @@ The Makefile assumes `vlog`/`vsim` / `vcs` / `xrun` are on your `PATH`. The exam
 
 - The `loopback_example.sv` source is intentionally tight (~150 lines) and reads top-to-bottom.
 - For the full VIP feature surface, every test under `verif/ovip_axi_testbench/src/*_test.sv` has a header comment describing what it verifies — that's the comprehensive set.
-- The "Writing Sequences" section of [`verif/ovip_axi/README.md`](../../verif/ovip_axi/README.md) covers the get/put model used by the master driver and the zero-time-response rule for slave sequences.
+- The "Writing Sequences" section of [`verif/ovip_axi/README.md`](../../../verif/ovip_axi/README.md) covers the get/put model used by the master driver and the zero-time-response rule for slave sequences.

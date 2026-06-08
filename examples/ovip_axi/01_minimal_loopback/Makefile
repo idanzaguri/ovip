@@ -1,20 +1,30 @@
-# AXI3 W-channel interleaving example for the ovip_axi VIP.
+# Minimal-loopback example for the ovip_axi VIP.
+#
+# Usage:
+#   make              # default = modelsim
+#   make SIM=modelsim
+#   make SIM=vcs
+#   make SIM=xcelium
+#   make clean
 
 SIM ?= modelsim
 
-COMMON_ROOT := $(abspath ../../verif/ovip_common)
-VIP_ROOT    := $(abspath ../../verif/ovip_axi/src)
+# Locate the VIP source roots from this directory.
+COMMON_ROOT := $(abspath ../../../verif/ovip_common)
+VIP_ROOT    := $(abspath ../../../verif/ovip_axi/src)
 VIP_INC     := +incdir+$(COMMON_ROOT) +incdir+$(COMMON_ROOT)/mem \
                +incdir+$(VIP_ROOT) +incdir+$(VIP_ROOT)/seqlib
 
+# Files compiled in order: shared utility packages, then the AXI VIP, then us.
 SRCS := \
     $(COMMON_ROOT)/ovip_global_pkg.sv \
     $(COMMON_ROOT)/mem/ovip_mem_pkg.sv \
     $(VIP_ROOT)/ovip_axi_pkg.sv \
-    interleave_example.sv
+    loopback_example.sv
 
 DEFS := +define+OVIP_AXI_MAX_DATA_WIDTH=64 +define+OVIP_AXI_MAX_STRB_WIDTH=8
 
+# ----------------------------------------------------------------------------
 ifeq ($(SIM),modelsim)
 run: clean
 	vlib work
@@ -42,6 +52,7 @@ run: clean
 	    $(VIP_INC) $(DEFS) $(SRCS)
 endif
 
+# ----------------------------------------------------------------------------
 clean:
 	rm -rf work transcript csrc simv simv.daidir ucli.key \
 	       xcelium.d xrun.log xrun.history \

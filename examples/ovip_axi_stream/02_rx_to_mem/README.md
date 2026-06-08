@@ -48,5 +48,5 @@ make             # default: SIM=modelsim
 
 ## What to read next
 
-- The `get_data_bytes` semantics (TKEEP / TSTRB filtering, defaults when qualifiers are absent) are documented in the *Byte qualifiers* section of [`verif/ovip_axi_stream/README.md`](../../verif/ovip_axi_stream/README.md).
-- `ovip_mem` itself is documented in [`verif/ovip_common/README.md`](../../verif/ovip_common/README.md).
+- The `get_data_bytes` semantics (TKEEP / TSTRB filtering, defaults when qualifiers are absent) are documented in the *Byte qualifiers* section of [`verif/ovip_axi_stream/README.md`](../../../verif/ovip_axi_stream/README.md).
+- `ovip_mem` itself is documented in [`verif/ovip_common/README.md`](../../../verif/ovip_common/README.md).

@@ -1,9 +1,9 @@
-# AXI-Stream minimal loopback for the ovip_axi_stream VIP.
+# AXI-Stream rx -> ovip_mem example.
 
 SIM ?= modelsim
 
-COMMON_ROOT := $(abspath ../../verif/ovip_common)
-VIP_ROOT    := $(abspath ../../verif/ovip_axi_stream/src)
+COMMON_ROOT := $(abspath ../../../verif/ovip_common)
+VIP_ROOT    := $(abspath ../../../verif/ovip_axi_stream/src)
 VIP_INC     := +incdir+$(COMMON_ROOT) +incdir+$(COMMON_ROOT)/mem \
                +incdir+$(VIP_ROOT) +incdir+$(VIP_ROOT)/seqlib
 
@@ -11,7 +11,7 @@ SRCS := \
     $(COMMON_ROOT)/ovip_global_pkg.sv \
     $(COMMON_ROOT)/mem/ovip_mem_pkg.sv \
     $(VIP_ROOT)/ovip_axi_stream_pkg.sv \
-    loopback_example.sv
+    rx_to_mem_example.sv
 
 ifeq ($(SIM),modelsim)
 run: clean

@@ -27,6 +27,5 @@ make             # default: SIM=modelsim
 ## What to read next
 
 - The `loopback_example.sv` source is tight (~150 lines) and reads top-to-bottom.
-- For multi-beat packets see `examples/06_axi_stream_packets/`.
-- For wiring received data into `ovip_mem` see `examples/07_axi_stream_rx_to_mem/`.
-- The "At a glance" matrix and "Integrating into your environment" section of [`verif/ovip_axi_stream/README.md`](../../verif/ovip_axi_stream/README.md) cover the VIP's feature surface and the compile-line plumbing.
+- For wiring received data into `ovip_mem` see [`../02_rx_to_mem/`](../02_rx_to_mem/).
+- The "At a glance" matrix and "Integrating into your environment" section of [`verif/ovip_axi_stream/README.md`](../../../verif/ovip_axi_stream/README.md) cover the VIP's feature surface and the compile-line plumbing.

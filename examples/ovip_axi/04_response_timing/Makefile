@@ -1,16 +1,9 @@
-# Out-of-order reads example for the ovip_axi VIP.
-#
-# Usage:
-#   make              # default = modelsim
-#   make SIM=modelsim
-#   make SIM=vcs
-#   make SIM=xcelium
-#   make clean
+# Response-timing example for the ovip_axi VIP.
 
 SIM ?= modelsim
 
-COMMON_ROOT := $(abspath ../../verif/ovip_common)
-VIP_ROOT    := $(abspath ../../verif/ovip_axi/src)
+COMMON_ROOT := $(abspath ../../../verif/ovip_common)
+VIP_ROOT    := $(abspath ../../../verif/ovip_axi/src)
 VIP_INC     := +incdir+$(COMMON_ROOT) +incdir+$(COMMON_ROOT)/mem \
                +incdir+$(VIP_ROOT) +incdir+$(VIP_ROOT)/seqlib
 
@@ -18,11 +11,10 @@ SRCS := \
     $(COMMON_ROOT)/ovip_global_pkg.sv \
     $(COMMON_ROOT)/mem/ovip_mem_pkg.sv \
     $(VIP_ROOT)/ovip_axi_pkg.sv \
-    ooo_reads_example.sv
+    timing_example.sv
 
 DEFS := +define+OVIP_AXI_MAX_DATA_WIDTH=64 +define+OVIP_AXI_MAX_STRB_WIDTH=8
 
-# ----------------------------------------------------------------------------
 ifeq ($(SIM),modelsim)
 run: clean
 	vlib work
@@ -50,7 +42,6 @@ run: clean
 	    $(VIP_INC) $(DEFS) $(SRCS)
 endif
 
-# ----------------------------------------------------------------------------
 clean:
 	rm -rf work transcript csrc simv simv.daidir ucli.key \
 	       xcelium.d xrun.log xrun.history \

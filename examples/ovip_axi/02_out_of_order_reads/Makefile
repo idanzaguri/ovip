@@ -1,4 +1,4 @@
-# Minimal-loopback example for the ovip_axi VIP.
+# Out-of-order reads example for the ovip_axi VIP.
 #
 # Usage:
 #   make              # default = modelsim
@@ -9,18 +9,16 @@
 
 SIM ?= modelsim
 
-# Locate the VIP source roots from this directory.
-COMMON_ROOT := $(abspath ../../verif/ovip_common)
-VIP_ROOT    := $(abspath ../../verif/ovip_axi/src)
+COMMON_ROOT := $(abspath ../../../verif/ovip_common)
+VIP_ROOT    := $(abspath ../../../verif/ovip_axi/src)
 VIP_INC     := +incdir+$(COMMON_ROOT) +incdir+$(COMMON_ROOT)/mem \
                +incdir+$(VIP_ROOT) +incdir+$(VIP_ROOT)/seqlib
 
-# Files compiled in order: shared utility packages, then the AXI VIP, then us.
 SRCS := \
     $(COMMON_ROOT)/ovip_global_pkg.sv \
     $(COMMON_ROOT)/mem/ovip_mem_pkg.sv \
     $(VIP_ROOT)/ovip_axi_pkg.sv \
-    loopback_example.sv
+    ooo_reads_example.sv
 
 DEFS := +define+OVIP_AXI_MAX_DATA_WIDTH=64 +define+OVIP_AXI_MAX_STRB_WIDTH=8
 

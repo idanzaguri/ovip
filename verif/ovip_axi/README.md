@@ -37,7 +37,7 @@ export OVIP_ROOT=/path/to/ovip
 
 The filelist relies on the `OVIP_ROOT` environment variable; nothing else needs to be configured. UVM 1.2 comes from your simulator's built-in library (no source needed). Apply any [Compile-Time Defines](#compile-time-defines) below as additional `+define+...` arguments on the same compile line.
 
-For a minimal end-to-end example you can run as-is, see [`examples/01_minimal_loopback/`](../../examples/01_minimal_loopback/).
+For a minimal end-to-end example you can run as-is, see [`examples/ovip_axi/01_minimal_loopback/`](../../examples/ovip_axi/01_minimal_loopback/).
 
 ## Compile-Time Defines
 

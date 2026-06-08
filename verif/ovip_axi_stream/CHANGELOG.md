@@ -51,9 +51,9 @@ Initial release. The VIP ships with both AXI4-Stream and AXI5-Stream support.
   add `-f $OVIP_ROOT/verif/ovip_axi_stream/ovip_axi_stream.f` to the
   compile step.
 - Cross-simulator portability: Modelsim/Questa, VCS, Xcelium all supported.
-- `examples/05_axi_stream_loopback/` -- hello-world: T -> R round-trip,
+- `examples/ovip_axi_stream/01_loopback/` -- hello-world: T -> R round-trip,
   `UVM_ERROR : 0` is the success criterion.
-- `examples/06_axi_stream_rx_to_mem/` -- receiver-side subscriber pulls
+- `examples/ovip_axi_stream/02_rx_to_mem/` -- receiver-side subscriber pulls
   `trans.get_data_bytes()` and writes into `ovip_mem` at a running address;
   the test reads the bytes back out of mem and verifies them.
 
