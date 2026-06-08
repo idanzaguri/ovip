@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 Versions before 1.0.0 may include breaking changes between minor releases — those
 breaks are called out explicitly in their changelog entry.
 
+## [0.2.0] — 2026-06-08
+
+### Changed — VIP (breaking)
+
+- Renamed the shared public types `bytestream` → `ovip_bytestream` and
+  `bitstream` → `ovip_bitstream` (defined in `ovip_global_pkg`). All `ovip_axi`
+  references — notably `ovip_axi_bytestream_sequence.data` — now use the
+  prefixed names. Generic, unprefixed type names in a wildcard-imported package
+  collide with user/other-library symbols; the `ovip_`-prefix matches the rest
+  of the public API and is collision-safe. Update any code referencing the old
+  names. The method names `read_bytestream`/`write_bytestream` are unchanged.
+
 ## [0.1.0] — 2026-05-31
 
 Initial public release.

@@ -3,9 +3,9 @@
 Pronounced **"oh-veep"**. Think of it as "open VIPs" — a family of
 openly-licensed UVM verification IPs for common interconnect protocols.
 
-Right now that's just **AXI** (AXI3, AXI4, AXI4-Lite), but the plan is more —
-AHB next, then APB, OCP, whatever the open hardware community ends up
-needing. There isn't a lot in the way of well-maintained, openly-licensed,
+Right now that's **AXI** (AXI3, AXI4, AXI4-Lite) and **AXI-Stream**
+(AXI4-Stream, AXI5-Stream), but the plan is more — AHB next, then APB, OCP,
+whatever the open hardware community ends up needing. There isn't a lot in the way of well-maintained, openly-licensed,
 multi-simulator UVM VIPs out there, and I think there should be.
 
 Same shape for every VIP added here:
@@ -21,11 +21,14 @@ Same shape for every VIP added here:
 | | |
 |---|---|
 | [`verif/ovip_axi/`](verif/ovip_axi/) | The AXI verification IP — master + slave agents, monitor, configurable widths, sequence library. Start with the [VIP README](verif/ovip_axi/README.md). |
+| [`verif/ovip_axi_stream/`](verif/ovip_axi_stream/) | The AXI-Stream verification IP — transmitter + receiver agents, monitor with the full set of spec-rule checks, scoreboard, sequence library. Covers AXI4-Stream and AXI5-Stream. Start with the [VIP README](verif/ovip_axi_stream/README.md). |
 | [`verif/ovip_common/`](verif/ovip_common/) | Shared utilities — memory model, common type helpers. Imported by every VIP in the family. |
 | [`examples/01_minimal_loopback/`](examples/01_minimal_loopback/) | The smallest runnable example. Clone, `make`, watch `UVM_ERROR : 0`. |
 | [`examples/02_out_of_order_reads/`](examples/02_out_of_order_reads/) | Slave returns responses in reverse-issued order (3, 2, 1, 0). Demonstrates `rd_out_of_order_depth`, `rd_scheduling_alg`, and per-transaction `data_delay`. |
 | [`examples/03_axi3_write_interleaving/`](examples/03_axi3_write_interleaving/) | Two AXI3 writes whose W beats interleave on the bus; a live watcher prints `wid` per beat. Demonstrates `wr_interleave_depth` and the AXI3-only `wid` field. |
 | [`examples/04_response_timing/`](examples/04_response_timing/) | Slave inserts a configurable `bresp_delay` after WLAST and a per-beat `data_delay[]` staircase on reads; channel watcher logs `t=…` on every handshake. |
+| [`examples/05_axi_stream_loopback/`](examples/05_axi_stream_loopback/) | Smallest AXI-Stream hello-world: transmitter + receiver on the same interface, 4 single-beat packets, success when `UVM_ERROR : 0`. |
+| [`examples/06_axi_stream_rx_to_mem/`](examples/06_axi_stream_rx_to_mem/) | Receiver-side subscriber pulls `trans.get_data_bytes()` (null/position bytes filtered out per the spec) and writes the resulting byte stream into `ovip_mem`. Round-trip verified by reading the mem back. |
 
 ## Quickstart
 

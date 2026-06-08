@@ -4,8 +4,8 @@
 package ovip_global_pkg;
 	import uvm_pkg::*;
 	`include "uvm_macros.svh"
-	typedef byte bytestream[$];
-	typedef bit bitstream[$];
+	typedef byte ovip_bytestream[$];
+	typedef bit ovip_bitstream[$];
 endpackage : ovip_global_pkg
 
 `endif

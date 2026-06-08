@@ -50,12 +50,12 @@ class ovip_mem extends uvm_component;
 	extern virtual function word_t read(addr_t addr);
 
 	// Function to read a bytestream
-	extern virtual function bytestream read_bytestream(addr_t addr, int size = WORD_SIZE);
+	extern virtual function ovip_bytestream read_bytestream(addr_t addr, int size = WORD_SIZE);
 
 	// Function to write a bytestream
 	// when byte_enable is {}, assuming that all 1's
-	static bitstream empty_bitstream = '{};
-	extern virtual function void write_bytestream(addr_t addr, ref bytestream data, ref bitstream byte_enable = empty_bitstream);
+	static ovip_bitstream empty_bitstream = '{};
+	extern virtual function void write_bytestream(addr_t addr, ref ovip_bytestream data, ref ovip_bitstream byte_enable = empty_bitstream);
 
 	// Basic memory dump (debug).
 	extern virtual function void print();
@@ -128,8 +128,8 @@ function ovip_mem::word_t ovip_mem::read(addr_t addr);
 endfunction : read
 
 
-function bytestream ovip_mem::read_bytestream(addr_t addr, int size = WORD_SIZE);
-	bytestream rd_data;
+function ovip_bytestream ovip_mem::read_bytestream(addr_t addr, int size = WORD_SIZE);
+	ovip_bytestream rd_data;
 	int byte_offset = addr % WORD_SIZE;
 	int num_full_words = int'($ceil( (size + byte_offset) / real'(WORD_SIZE) ));
 	int produced = 0;

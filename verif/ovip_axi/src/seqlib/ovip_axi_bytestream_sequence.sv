@@ -9,7 +9,7 @@ class ovip_axi_bytestream_sequence extends uvm_sequence#(ovip_axi_trans);
 	ovip_axi_id_t    id    = 0;
 	ovip_axi_size_t  size  = OVIP_AXI_SIZE_4B;
 
-	bytestream data;
+	ovip_bytestream data;
 	bit strb[$];
 	int read_size;
 
