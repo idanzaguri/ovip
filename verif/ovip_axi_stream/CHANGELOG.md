@@ -4,14 +4,14 @@ All notable changes to this VIP are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Versions before 1.0.0 may include breaking changes between minor releases — those
+Versions before 1.0.0 may include breaking changes between minor releases -- those
 breaks are called out explicitly in their changelog entry.
 
-## [0.1.0] — 2026-06-09
+## [0.1.0] -- 2026-06-09
 
 Initial release. The VIP ships with both AXI4-Stream and AXI5-Stream support.
 
-### Added — VIP
+### Added -- VIP
 
 - Transmitter (`OVIP_AXI_STREAM_TRANSMITTER`) and Receiver
   (`OVIP_AXI_STREAM_RECEIVER`) agents (`ovip_axi_stream_agent`), each
@@ -45,7 +45,7 @@ Initial release. The VIP ships with both AXI4-Stream and AXI5-Stream support.
   `ovip_axi_stream_simple_packet_seq` (configurable N-packet builder).
 - Apache-2.0 licensed; portable across Modelsim/Questa, VCS, Xcelium.
 
-### Added — integration / tooling
+### Added -- integration / tooling
 
 - **`ovip_axi_stream.f`** -- single compile filelist; set `OVIP_ROOT`,
   add `-f $OVIP_ROOT/verif/ovip_axi_stream/ovip_axi_stream.f` to the

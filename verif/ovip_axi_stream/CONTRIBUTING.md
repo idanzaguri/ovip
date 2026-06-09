@@ -1,7 +1,7 @@
 # Contributing to ovip_axi_stream
 
 Thanks for your interest in improving ovip_axi_stream! Contributions are
-welcome — whether that's a bug fix, a new feature, or documentation.
+welcome -- whether that's a bug fix, a new feature, or documentation.
 
 ## How to contribute
 
@@ -13,7 +13,7 @@ welcome — whether that's a bug fix, a new feature, or documentation.
 4. The maintainer reviews each pull request before it is merged.
 
 By submitting a contribution you agree that it is licensed under the
-project's license (Apache-2.0, see [LICENSE](LICENSE)) — inbound
+project's license (Apache-2.0, see [LICENSE](LICENSE)) -- inbound
 contributions are under the same terms as the project.
 
 ## Coding conventions
@@ -55,5 +55,5 @@ The following are open and welcome as contributions:
 ## Reporting issues
 
 Open an issue describing the smallest reproducible scenario. For protocol
-questions, point at the relevant section of ARM IHI 0051B if you can — it
+questions, point at the relevant section of ARM IHI 0051B if you can -- it
 keeps the conversation specific.

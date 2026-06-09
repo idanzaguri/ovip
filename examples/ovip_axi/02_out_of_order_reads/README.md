@@ -1,13 +1,13 @@
-# Out-of-Order Reads — `ovip_axi` example
+# Out-of-Order Reads -- `ovip_axi` example
 
 Shows how a slave can return read responses in an order different from the order the master issued them, using the VIP's reorder window (`rd_out_of_order_depth`) plus per-transaction read-data delays. The master issues four reads with IDs 0..3 in order; the slave responds **3, 2, 1, 0**.
 
 ## What it demonstrates
 
-- **`cfg.rd_out_of_order_depth`** on the slave — the reorder window the slave is allowed to look at when picking which response to drive next. `1` would force strict in-order; here we set it to 4 so all four reads are eligible at once.
-- **`cfg.rd_scheduling_alg`** — `OVIP_AXI_SCH_ALG_ALWAYS_FIRST` here, but in this example only one transaction is ripe at a time (delays are staggered), so the algorithm choice doesn't change the outcome. Switch to `OVIP_AXI_SCH_ALG_RANDOM` to see random ordering.
+- **`cfg.rd_out_of_order_depth`** on the slave -- the reorder window the slave is allowed to look at when picking which response to drive next. `1` would force strict in-order; here we set it to 4 so all four reads are eligible at once.
+- **`cfg.rd_scheduling_alg`** -- `OVIP_AXI_SCH_ALG_ALWAYS_FIRST` here, but in this example only one transaction is ripe at a time (delays are staggered), so the algorithm choice doesn't change the outcome. Switch to `OVIP_AXI_SCH_ALG_RANDOM` to see random ordering.
 - **Per-transaction `data_delay[$]`**, set by overriding `set_read_trans_delays(tr)` in a slave-sequence subclass. Each transaction's delay is computed from its ID so id=3 ripens first and id=0 last.
-- **Monitor analysis port subscription** — a tiny `uvm_subscriber` on the master agent's analysis port prints each response in arrival order and checks the data against pre-seeded memory.
+- **Monitor analysis port subscription** -- a tiny `uvm_subscriber` on the master agent's analysis port prints each response in arrival order and checks the data against pre-seeded memory.
 
 ## Files
 
@@ -43,7 +43,7 @@ UVM_ERROR : 0
 UVM_FATAL : 0
 ```
 
-`UVM_ERROR : 0` is the success criterion — every read returned the value pre-seeded in memory for its address, regardless of the order it arrived.
+`UVM_ERROR : 0` is the success criterion -- every read returned the value pre-seeded in memory for its address, regardless of the order it arrived.
 
 ## What to read next
 

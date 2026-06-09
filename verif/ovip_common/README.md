@@ -13,7 +13,7 @@ be reusable across multiple protocol VIPs (AXI, AHB, OCP, ...) lives here.
 ## Using
 
 These packages are dependencies of the protocol VIPs in this repository. You
-typically don't compile `ovip_common` standalone — the per-VIP filelist
+typically don't compile `ovip_common` standalone -- the per-VIP filelist
 (e.g. [`../ovip_axi/ovip_axi.f`](../ovip_axi)) pulls in what it needs.
 
 If you're integrating manually, the compile order is:
@@ -26,4 +26,4 @@ ovip_common/mem/ovip_mem_pkg.sv    ← second
 
 ## License
 
-Apache-2.0 — see the repository root `LICENSE` file.
+Apache-2.0 -- see the repository root `LICENSE` file.

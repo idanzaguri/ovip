@@ -1,6 +1,6 @@
 # OVIP AXI
 
-UVM verification IP for the AXI family of protocols — **AXI3, AXI4, AXI4-Lite**. Each agent is switchable between active master, active slave, and passive monitor. The monitor performs X/Z and signal-stability protocol checks on every channel by default. A sequence library covers single/multi-beat bursts, out-of-order and interleaved traffic, and a memory-backed slave responder. Apache-2.0 licensed; portable across Modelsim/Questa, VCS, and Xcelium.
+UVM verification IP for the AXI family of protocols -- **AXI3, AXI4, AXI4-Lite**. Each agent is switchable between active master, active slave, and passive monitor. The monitor performs X/Z and signal-stability protocol checks on every channel by default. A sequence library covers single/multi-beat bursts, out-of-order and interleaved traffic, and a memory-backed slave responder. Apache-2.0 licensed; portable across Modelsim/Questa, VCS, and Xcelium.
 
 ### At a glance
 
@@ -8,7 +8,7 @@ UVM verification IP for the AXI family of protocols — **AXI3, AXI4, AXI4-Lite*
 |---|---|
 | Protocols | AXI3, AXI4, AXI4-Lite. ACE / ACE-Lite enum values exist but the protocol is **not** implemented |
 | Burst types | INCR, FIXED, WRAP |
-| Bus widths | 1B – 512B (≥256B is out-of-spec and requires `size_width = 4`) |
+| Bus widths | 1B - 512B (≥256B is out-of-spec and requires `size_width = 4`) |
 | Out-of-order completion | Yes (`*_out_of_order_depth`), with five scheduling algorithms |
 | AXI3 W-channel interleaving | Yes (`wr_interleave_depth`) |
 | Byte-lane alignment | Auto (default) or manual. Covers narrow transfers, unaligned starts, INCR, and FIXED |
@@ -64,7 +64,7 @@ Each value sets the *physical wire width* of a channel signal in the interface. 
 
 ### Randomization Limits
 
-Soft upper bounds applied to the **delay** fields of `ovip_axi_trans` so a bare `tr.randomize()` doesn't generate huge timing gaps out of the box. None of these are spec-mandated maximums — they exist purely to make the default random distribution comfortable. Because the underlying constraints are `soft`, a per-call `with { ... }` clause silently overrides them; to change the default globally, redefine the macro at compile time.
+Soft upper bounds applied to the **delay** fields of `ovip_axi_trans` so a bare `tr.randomize()` doesn't generate huge timing gaps out of the box. None of these are spec-mandated maximums -- they exist purely to make the default random distribution comfortable. Because the underlying constraints are `soft`, a per-call `with { ... }` clause silently overrides them; to change the default globally, redefine the macro at compile time.
 
 | Define | Default | Bounds |
 |---|---|---|
@@ -75,7 +75,7 @@ Soft upper bounds applied to the **delay** fields of `ovip_axi_trans` so a bare 
 | `OVIP_AXI_TRANS_NEXT_ADDR_DELAY_MAX` | `30` | `delay_until_next_addr` (master-side pacing between consecutive address phases). |
 | `OVIP_AXI_TRANS_NEXT_DATA_DELAY_MAX` | `30` | `delay_until_next_data` (master-side pacing between consecutive data phases). |
 
-`len`, `size`, and `addr` are intentionally **not** capped — users normally pin them to their test's needs anyway. Override per call:
+`len`, `size`, and `addr` are intentionally **not** capped -- users normally pin them to their test's needs anyway. Override per call:
 
 ```systemverilog
 tr.randomize() with { addr inside {[32'h1000_0000 : 32'h1000_0FFF]}; len < 4; };
@@ -132,11 +132,11 @@ The delay between the address phase and the first data beat can be controlled wi
 
 ## Byte-Lane Alignment
 
-In AXI, when a beat is narrower than the bus or the burst starts at an unaligned address, the active bytes have to be driven on the byte lanes that match the address — not at the LSB of `wdata`/`rdata`. For example, with an 8-byte bus, address `0x05` and a 1-byte beat, the byte must land on lane 5 (`wdata[47:40]`) and `wstrb[5]` must be set. For the next beat at address `0x06` (in an INCR burst), the byte moves to lane 6, and so on.
+In AXI, when a beat is narrower than the bus or the burst starts at an unaligned address, the active bytes have to be driven on the byte lanes that match the address -- not at the LSB of `wdata`/`rdata`. For example, with an 8-byte bus, address `0x05` and a 1-byte beat, the byte must land on lane 5 (`wdata[47:40]`) and `wstrb[5]` must be set. For the next beat at address `0x06` (in an INCR burst), the byte moves to lane 6, and so on.
 
 `cfg.auto_byte_lanes_alignment` (default `1`) decides who places the data on the correct lane:
 
-- **`= 1` (default, recommended):** the user fills `tr.data_beats[i]` (and `tr.strb_beats[i]` for writes) **at bit 0**, as if the bus were lane-0-aligned. The driver shifts each beat into the correct byte lane before driving; the monitor shifts back when sampling, so the value the user sees in `tr.data_beats[i]` is always the natural, lane-0-aligned content. Strobes are derived from `tr.size` and the address — the user does not have to compute `wstrb` manually.
+- **`= 1` (default, recommended):** the user fills `tr.data_beats[i]` (and `tr.strb_beats[i]` for writes) **at bit 0**, as if the bus were lane-0-aligned. The driver shifts each beat into the correct byte lane before driving; the monitor shifts back when sampling, so the value the user sees in `tr.data_beats[i]` is always the natural, lane-0-aligned content. Strobes are derived from `tr.size` and the address -- the user does not have to compute `wstrb` manually.
 - **`= 0`:** the VIP drives `tr.data_beats[i]` straight onto `wdata`. The user is responsible for placing each beat in the right byte lane *and* setting `tr.strb_beats[i]` accordingly. Use this when your test fully controls the wire-level picture (e.g. checking that the VIP reacts correctly to a deliberately misaligned beat).
 
 ### Example
@@ -150,11 +150,11 @@ In AXI, when a beat is narrower than the bus or the burst starts at an unaligned
 | `wdata` on the wire (beat 0) | `64'h0000A00000000000` | `64'h0000A00000000000` |
 | `wstrb` on the wire (beat 0) | `8'b0010_0000` | `8'b0010_0000` |
 
-The wire picture is identical — only who shifts the data differs.
+The wire picture is identical -- only who shifts the data differs.
 
 ### Burst-type coverage
 
-INCR, FIXED, and WRAP are all supported under auto-alignment, including the corners — narrow transfers, unaligned start addresses, FIXED with `burst_size == bus_width` (covered by `ovip_axi_fixed_full_width_alignment_test`), and WRAP at all spec-legal lengths (covered by `ovip_axi_wrap_burst_test`). On a full-width transfer with an aligned address the lane offset is zero, so the master driver and slave/monitor sample the data unshifted — exactly what the user wrote in `data_beats[i]`. The monitor enforces WRAP's spec rules (length ∈ {2,4,8,16} and start address aligned to `burst_size`).
+INCR, FIXED, and WRAP are all supported under auto-alignment, including the corners -- narrow transfers, unaligned start addresses, FIXED with `burst_size == bus_width` (covered by `ovip_axi_fixed_full_width_alignment_test`), and WRAP at all spec-legal lengths (covered by `ovip_axi_wrap_burst_test`). On a full-width transfer with an aligned address the lane offset is zero, so the master driver and slave/monitor sample the data unshifted -- exactly what the user wrote in `data_beats[i]`. The monitor enforces WRAP's spec rules (length ∈ {2,4,8,16} and start address aligned to `burst_size`).
 
 ## Ready Patterns
 
@@ -167,7 +167,7 @@ typedef struct {
 } ovip_axi_ready_pattern_t;
 ```
 
-Each element of `cycles` holds the current level for that many cycles, and the level alternates with the element index — **even indices drive `0`, odd indices drive `1`**.
+Each element of `cycles` holds the current level for that many cycles, and the level alternates with the element index -- **even indices drive `0`, odd indices drive `1`**.
 
 ```
 cycles = '{3, 1, 4, 2}
@@ -188,7 +188,7 @@ One-shot  : '{cycles:'{3, 1, 4}, loop:0}  // 3 low, 1 high, 4 low, then held at 
 Repeating : '{cycles:'{3, 1},    loop:1}  // 3 low, 1 high, repeat
 ```
 
-A common idiom is the always-ready pattern `'{cycles:'{0, 1}, loop:0}` — drive `0` for 0 cycles (no-op), then `1` and hold. This is what every channel's default config uses.
+A common idiom is the always-ready pattern `'{cycles:'{0, 1}, loop:0}` -- drive `0` for 0 cycles (no-op), then `1` and hold. This is what every channel's default config uses.
 
 ### Delivering a pattern to a driver
 
@@ -227,10 +227,10 @@ When out-of-order / interleaving depth is greater than 1, a driver can have seve
 
 ### Eligibility rules (applied before the algorithm)
 
-Each cycle the scheduler first builds the **ready set** — the transactions eligible to advance this cycle — using these rules:
+Each cycle the scheduler first builds the **ready set** -- the transactions eligible to advance this cycle -- using these rules:
 
 - **Reorder window:** only the first `*_out_of_order_depth` entries of the outstanding queue are considered.
-- **Per-ID ordering:** AXI requires data for a given ID to stay in order, so at most one transaction per ID is eligible at a time — the oldest not-yet-complete one. Later transactions with the same ID wait their turn.
+- **Per-ID ordering:** AXI requires data for a given ID to stay in order, so at most one transaction per ID is eligible at a time -- the oldest not-yet-complete one. Later transactions with the same ID wait their turn.
 - **Per-beat readiness:** a transaction is only eligible once its programmed inter-beat delay has elapsed.
 - **Interleave limit:** a *new* ID is only added to the in-flight set while fewer than `*_interleave_depth` IDs are currently interleaved.
 
@@ -258,8 +258,8 @@ configured limit raises an `AXI_MON/OUTSTANDING_EXCEED` error.
 A transaction counts as outstanding from **whichever phase appears first** until
 its completion (BRESP for writes, last beat for reads). This matters for
 data-before-address writes (`data_start_event == OVIP_AXI_DATA_START_EV_BEFORE_ADDR`):
-such a write is counted as soon as its **data** phase opens it — not only once its
-address arrives — so the limit reflects work that is genuinely in flight on the bus.
+such a write is counted as soon as its **data** phase opens it -- not only once its
+address arrives -- so the limit reflects work that is genuinely in flight on the bus.
 
 ## Writing Sequences
 
@@ -267,7 +267,7 @@ This section is about writing your own master-side and slave-side sequences agai
 
 ### Master sequences (the get/put model)
 
-The master driver uses UVM's **get/put** pattern, not the more common `get_next_item`/`item_done` pattern. The driver pulls an item off the sequencer via `seq_item_port.get(req)` (which auto-acknowledges the item — `start_item`/`finish_item` returns *here*), then later pushes the completed transaction back via `seq_item_port.put(rsp)` once the actual bus traffic for that transaction is done.
+The master driver uses UVM's **get/put** pattern, not the more common `get_next_item`/`item_done` pattern. The driver pulls an item off the sequencer via `seq_item_port.get(req)` (which auto-acknowledges the item -- `start_item`/`finish_item` returns *here*), then later pushes the completed transaction back via `seq_item_port.put(rsp)` once the actual bus traffic for that transaction is done.
 
 The consequence:
 
@@ -323,7 +323,7 @@ forever begin
 end
 ```
 
-> ⚠️ **The slave sequence MUST return its response in zero simulation time** — i.e., no `@`, no `#delay`, no `wait`, no `@cb` between `get(req)` and `finish_item(req)`.
+> ⚠️ **The slave sequence MUST return its response in zero simulation time** -- i.e., no `@`, no `#delay`, no `wait`, no `@cb` between `get(req)` and `finish_item(req)`.
 
 The slave driver enforces this. After `finish_item` returns the item to the driver, the driver checks whether the clocking-block edge has already been triggered for this cycle:
 - If yes (you stayed in zero time), the driver drives the response on the same edge.
@@ -343,7 +343,7 @@ The reason the rule exists: an immediate response (BRESP on the cycle after WLAS
 
 The driver applies those delays internally between accepting your `finish_item` and driving the corresponding bus signals.
 
-`ovip_axi_base_slave_sequence` (in `verif/ovip_axi/src/seq/`) is the canonical template. It walks the read path via `populate_data_from_mem`, the write path via `write_transaction_to_mem`, and demonstrates the zero-time response pattern as well as how to use the trans's timing fields. Subclass it when you need to inject errors, custom delays, or non-default response values — and only override the parts you care about, leaving the rest to the base.
+`ovip_axi_base_slave_sequence` (in `verif/ovip_axi/src/seq/`) is the canonical template. It walks the read path via `populate_data_from_mem`, the write path via `write_transaction_to_mem`, and demonstrates the zero-time response pattern as well as how to use the trans's timing fields. Subclass it when you need to inject errors, custom delays, or non-default response values -- and only override the parts you care about, leaving the rest to the base.
 
 #### When does a write commit to the backing memory?
 
@@ -352,7 +352,7 @@ The base sequence exposes a single bit, `wr_mem_update_on_bresp`, that controls 
 | Value | Commit timing | Models | Notes |
 |---|---|---|---|
 | `1` (default) | After BRESP is sampled by the master (`tr.transaction_finished`) | A slave that commits the line only after response handshake | A subsequent read to the same address that races BRESP sees the **old** value. Costs one fork-join_none watcher per write (reset-race protected). |
-| `0` | Immediately on request reception (right after WLAST is sampled) | A simple write-on-WLAST slave | Subsequent reads see the **new** value immediately. Cheaper in simulation — no watcher process. |
+| `0` | Immediately on request reception (right after WLAST is sampled) | A simple write-on-WLAST slave | Subsequent reads see the **new** value immediately. Cheaper in simulation -- no watcher process. |
 
 Both modes correctly skip the memory update on `SLVERR`/`DECERR` (the response code is finalized before the commit decision in either branch). The knob lives on the slave sequence so a single agent can run different slave-sequence subclasses with different commit policies within the same test.
 
@@ -365,9 +365,9 @@ seq.start(slave_agent.sqr);
 
 ## Reading further
 
-This README covers the surface most users hit day-to-day. For the edge cases — the per-channel scheduler in `src/ovip_axi_out_of_order_queue.sv`, the per-beat lane math in `src/ovip_axi_trans.sv` (`calculate_transfer_starting_byte_lane`), the slave-sequence extension points in `src/seqlib/ovip_axi_base_slave_sequence.sv`, the monitor checks in `src/ovip_axi_monitor.sv` — **the code is the authoritative reference**. Every source file opens with a short header explaining what it does and where to look next; following those from whichever function you're using is the fastest way to answer a question the README doesn't address. If you hit something the README *should* spell out and doesn't, an issue or PR is very welcome.
+This README covers the surface most users hit day-to-day. For the edge cases -- the per-channel scheduler in `src/ovip_axi_out_of_order_queue.sv`, the per-beat lane math in `src/ovip_axi_trans.sv` (`calculate_transfer_starting_byte_lane`), the slave-sequence extension points in `src/seqlib/ovip_axi_base_slave_sequence.sv`, the monitor checks in `src/ovip_axi_monitor.sv` -- **the code is the authoritative reference**. Every source file opens with a short header explaining what it does and where to look next; following those from whichever function you're using is the fastest way to answer a question the README doesn't address. If you hit something the README *should* spell out and doesn't, an issue or PR is very welcome.
 
 ## License
 
-Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Licensed under the Apache License, Version 2.0 -- see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 Copyright 2026 Idan Zaguri.

@@ -1,4 +1,4 @@
-# AXI-Stream → `ovip_mem` — capture stream into a memory model
+# AXI-Stream → `ovip_mem` -- capture stream into a memory model
 
 Wires a receiver-side subscriber into `ovip_mem.write_bytestream`, so every AXI-Stream packet that arrives at the receiver is appended into a memory at a running write address. After the stimulus completes, the test reads the bytes back out of `ovip_mem` and verifies they match the data bytes the transmitter intended to deliver.
 
@@ -20,12 +20,12 @@ transmitter -> [valid/data/qualifiers/last] -> receiver monitor
 
 ## What it demonstrates
 
-- **`ovip_axi_stream_trans::get_data_bytes()`** — returns a flat `ovip_bytestream` of the packet's *valid* bytes only:
+- **`ovip_axi_stream_trans::get_data_bytes()`** -- returns a flat `ovip_bytestream` of the packet's *valid* bytes only:
   - bytes with `TKEEP = 0` (null bytes) are dropped automatically
   - bytes with `TKEEP = 1, TSTRB = 0` (position bytes) are dropped by default; pass `include_position_bytes = 1` to keep them
   - the per-beat ordering is preserved
-- **`ovip_mem::write_bytestream(addr, data)`** — appends a byte queue into the memory at a chosen address; subsequent writes can continue at `addr + data.size()`.
-- **`ovip_mem::read_bytestream(addr, size)`** — reads a span back as a byte queue so the test can compare against the producer's intent.
+- **`ovip_mem::write_bytestream(addr, data)`** -- appends a byte queue into the memory at a chosen address; subsequent writes can continue at `addr + data.size()`.
+- **`ovip_mem::read_bytestream(addr, size)`** -- reads a span back as a byte queue so the test can compare against the producer's intent.
 
 The example feeds two packets:
 1. A 3-beat packet with all-data bytes.

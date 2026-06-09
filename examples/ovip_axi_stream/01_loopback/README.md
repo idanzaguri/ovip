@@ -1,4 +1,4 @@
-# Minimal AXI-Stream Loopback — `ovip_axi_stream` hello-world
+# Minimal AXI-Stream Loopback -- `ovip_axi_stream` hello-world
 
 A single test that brings up one transmitter agent and one receiver agent on the same AXI-Stream interface, then sends four single-beat packets. A small subscriber on the receiver's monitor counts the packets and reports an error if anything but four arrive.
 

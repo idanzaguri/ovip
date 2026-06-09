@@ -1,6 +1,6 @@
 # OVIP AXI-Stream
 
-UVM verification IP for the AMBA AXI-Stream protocols — **AXI4-Stream** and **AXI5-Stream** (ARM IHI 0051B). One transmitter agent and one receiver agent on a single point-to-point channel; the monitor performs X/Z and signal-stability checks plus the AXI-Stream-specific protocol checks (TKEEP/TSTRB reserved combination, TID/TDEST stability within a packet, TVALID-during-reset, exit-from-reset rule, AXI5 wake-up hold). Apache-2.0 licensed; same simulator portability story as the rest of the OVIP family.
+UVM verification IP for the AMBA AXI-Stream protocols -- **AXI4-Stream** and **AXI5-Stream** (ARM IHI 0051B). One transmitter agent and one receiver agent on a single point-to-point channel; the monitor performs X/Z and signal-stability checks plus the AXI-Stream-specific protocol checks (TKEEP/TSTRB reserved combination, TID/TDEST stability within a packet, TVALID-during-reset, exit-from-reset rule, AXI5 wake-up hold). Apache-2.0 licensed; same simulator portability story as the rest of the OVIP family.
 
 ### At a glance
 
@@ -8,7 +8,7 @@ UVM verification IP for the AMBA AXI-Stream protocols — **AXI4-Stream** and **
 |---|---|
 | Protocols | AXI4-Stream, AXI5-Stream |
 | Optional signals | TREADY, TDATA, TSTRB, TKEEP, TLAST, TID, TDEST, TUSER, TWAKEUP (AXI5) |
-| TDATA width | 1 B – 128 B (override `OVIP_AXI_STREAM_MAX_DATA_WIDTH` for wider) |
+| TDATA width | 1 B - 128 B (override `OVIP_AXI_STREAM_MAX_DATA_WIDTH` for wider) |
 | Byte qualifiers | TKEEP + TSTRB decoded per spec section 2.5.3; reserved combo flagged |
 | Packet boundaries | TLAST, with packet-scope TID/TDEST stability enforced |
 | TUSER | Per-byte (`tuser_bits_per_byte * tdata_width`), spec section 2.9 indexing |
@@ -56,7 +56,7 @@ The minimal runnable example is [`examples/ovip_axi_stream/01_loopback/`](../../
 
 ## Signal model
 
-The interface (`ovip_axi_stream_agent_if`) carries the full superset of AXI4-Stream + AXI5-Stream signals at the MAX widths above. Each agent's runtime config selects which signals are *live* — the per-signal `*_en` flags drive the monitor's checks and the transmitter's drive logic. Unused signals stay at zero on the wire and aren't checked.
+The interface (`ovip_axi_stream_agent_if`) carries the full superset of AXI4-Stream + AXI5-Stream signals at the MAX widths above. Each agent's runtime config selects which signals are *live* -- the per-signal `*_en` flags drive the monitor's checks and the transmitter's drive logic. Unused signals stay at zero on the wire and aren't checked.
 
 Three clocking blocks:
 
@@ -72,10 +72,10 @@ Per spec section 2.5.3, the four legal combinations of TKEEP and TSTRB are:
 
 | TKEEP | TSTRB | Meaning |
 |:---:|:---:|---|
-| `1` | `1` | **Data byte** — content is meaningful and must reach the receiver. |
-| `1` | `0` | **Position byte** — placeholder; conveys structure but no data value. |
-| `0` | `0` | **Null byte** — can be inserted/removed by the interconnect. |
-| `0` | `1` | **Reserved** — must not be used. The monitor flags every occurrence via `AXIS_MON/BYTE_QUAL`. |
+| `1` | `1` | **Data byte** -- content is meaningful and must reach the receiver. |
+| `1` | `0` | **Position byte** -- placeholder; conveys structure but no data value. |
+| `0` | `0` | **Null byte** -- can be inserted/removed by the interconnect. |
+| `0` | `1` | **Reserved** -- must not be used. The monitor flags every occurrence via `AXIS_MON/BYTE_QUAL`. |
 
 When `TSTRB` is absent on the interface, the spec defines `TSTRB ≡ TKEEP` (every transported byte is a data byte). When `TKEEP` is absent, every transported byte is also a data byte. **`ovip_axi_stream_trans::get_data_bytes()`** honors both defaults.
 
@@ -96,12 +96,12 @@ typedef struct {
 } ovip_axi_stream_ready_pattern_t;
 ```
 
-Default: `'{cycles:'{0, 1}, loop:0}` — always-ready, no back-pressure.
+Default: `'{cycles:'{0, 1}, loop:0}` -- always-ready, no back-pressure.
 
 Three delivery routes (same model as the ovip_axi ready patterns):
-1. **Via `cfg.default_tready_pattern`** — picked up at agent build.
-2. **Via the transaction** — set `tr.tready_pattern` to override for *future* incoming packets.
-3. **Direct helper** — call `slave_agent.slave_drv.put_tready_pattern(cycles, loop)` from a test/sequence at any time.
+1. **Via `cfg.default_tready_pattern`** -- picked up at agent build.
+2. **Via the transaction** -- set `tr.tready_pattern` to override for *future* incoming packets.
+3. **Direct helper** -- call `slave_agent.slave_drv.put_tready_pattern(cycles, loop)` from a test/sequence at any time.
 
 All three routes feed the same per-channel mailbox; pushing a new pattern preempts the one currently running and restarts driving from its first element.
 
@@ -125,13 +125,13 @@ class my_seq extends ovip_axi_stream_base_master_sequence;
 endclass
 ```
 
-The receiver side is pattern-driven, not item-driven — `ovip_axi_stream_base_slave_sequence` pulls monitor-captured packets off the slave sequencer's `response_req_port` and exposes a `process_request(req)` hook for tests that want to react (push a new TREADY pattern, log, etc.).
+The receiver side is pattern-driven, not item-driven -- `ovip_axi_stream_base_slave_sequence` pulls monitor-captured packets off the slave sequencer's `response_req_port` and exposes a `process_request(req)` hook for tests that want to react (push a new TREADY pattern, log, etc.).
 
 ## Reading further
 
-This README covers the surface most users hit day-to-day. For the edge cases — every spec-rule monitor check in `src/ovip_axi_stream_monitor.sv`, the transmitter's per-beat lane handling in `src/ovip_axi_stream_master_driver.sv`, the scoreboard's per-TID FIFO policy in `src/ovip_axi_stream_scoreboard.sv` — **the code is the authoritative reference**. Every source file opens with a short header explaining what it does and where to look next. If you hit something the README should spell out and doesn't, an issue or PR is welcome.
+This README covers the surface most users hit day-to-day. For the edge cases -- every spec-rule monitor check in `src/ovip_axi_stream_monitor.sv`, the transmitter's per-beat lane handling in `src/ovip_axi_stream_master_driver.sv`, the scoreboard's per-TID FIFO policy in `src/ovip_axi_stream_scoreboard.sv` -- **the code is the authoritative reference**. Every source file opens with a short header explaining what it does and where to look next. If you hit something the README should spell out and doesn't, an issue or PR is welcome.
 
 ## License
 
-Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Licensed under the Apache License, Version 2.0 -- see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 Copyright 2026 Idan Zaguri.

@@ -1,4 +1,4 @@
-# Response Timing — `ovip_axi` example
+# Response Timing -- `ovip_axi` example
 
 Demonstrates the two main slave-side response-timing knobs and makes their effect directly visible in the simulation log:
 
