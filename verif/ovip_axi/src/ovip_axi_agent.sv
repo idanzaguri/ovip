@@ -35,19 +35,19 @@ function void ovip_axi_agent::build_phase(uvm_phase phase);
 
 	super.build_phase(phase);
 
-	mon = ovip_axi_monitor::type_id::create("mon", this);
+	mon = ovip_axi_monitor#()::type_id::create("mon", this);
 	mon.cfg = cfg;
 
 	if(get_is_active())
 	begin
 		if(cfg.agent_type == OVIP_SLAVE_AGENT)
 		begin
-			drv = ovip_axi_slave_driver::type_id::create("drv", this);
+			drv = ovip_axi_slave_driver#()::type_id::create("drv", this);
 			sqr = ovip_axi_slave_sequencer::type_id::create("sqr", this);
 		end
 		else
 		begin
-			drv = ovip_axi_master_driver::type_id::create("drv", this);
+			drv = ovip_axi_master_driver#()::type_id::create("drv", this);
 			sqr = ovip_axi_base_sequencer::type_id::create("sqr", this);
 		end
 		drv.cfg = cfg;

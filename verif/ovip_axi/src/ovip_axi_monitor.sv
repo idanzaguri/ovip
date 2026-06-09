@@ -1,11 +1,11 @@
 `ifndef OVIP_AXI_MONITOR__SV
 `define OVIP_AXI_MONITOR__SV
 
-class ovip_axi_monitor extends uvm_monitor;
+class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_monitor;
 
 	string MESSAGE_TAG; // prefix on monitor message IDs; set from cfg.agent_tag (empty = none)
 
-	virtual ovip_axi_agent_if vif;
+	IF_T vif;
 
 	ovip_axi_agent_config cfg;
 
@@ -72,7 +72,7 @@ class ovip_axi_monitor extends uvm_monitor;
 	ovip_axi_trans pending_rsp_req[$];
 
 
-	`uvm_component_param_utils(ovip_axi_monitor)
+	`uvm_component_param_utils(ovip_axi_monitor#(IF_T))
 
 
 	function new(string name = "ovip_axi_monitor", uvm_component parent);
@@ -89,6 +89,9 @@ class ovip_axi_monitor extends uvm_monitor;
 	extern virtual function void report_phase(uvm_phase phase);
 	extern virtual task run_phase(uvm_phase phase);
 	extern virtual task rst_monitor();
+
+	// Empty hook subclasses override to fork additional per-channel monitors
+	virtual task extra_forks(); endtask
 
 
 	extern virtual function ovip_axi_trans new_transaction();
@@ -165,7 +168,7 @@ function void ovip_axi_monitor::build_phase(uvm_phase phase);
 	// Optional per-agent prefix on monitor message IDs (empty by default).
 	if(cfg.agent_tag != "") MESSAGE_TAG = {cfg.agent_tag, "/"};
 
-	if (!uvm_config_db#(virtual ovip_axi_agent_if)::get(this, "", "vif", vif))
+	if (!uvm_config_db#(IF_T)::get(this, "", "vif", vif))
 	begin
 		`uvm_fatal("MISSING_VIF",$sformatf("Missing virtual interface - %s.vif", this.get_full_name() ))
 	end
@@ -222,6 +225,8 @@ task ovip_axi_monitor::run_phase(uvm_phase phase);
 					if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE) ar_channel_signal_stability_check();
 					if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE) r_channel_signal_stability_check();
 				`endif
+
+				extra_forks();
 			join
 		`END_FIRST_OF
 	end

@@ -1,7 +1,7 @@
 `ifndef OVIP_AXI_MASTER_DRIVER__SV
 `define OVIP_AXI_MASTER_DRIVER__SV
 
-class ovip_axi_master_driver extends ovip_axi_base_driver;
+class ovip_axi_master_driver #(type IF_T = virtual ovip_axi_agent_if) extends ovip_axi_base_driver #(IF_T);
 
 	// Signal masks - used to sample and drive only the relevant portions of the signal
 	// because signal widths are set to the maximum supported length.
@@ -58,7 +58,7 @@ class ovip_axi_master_driver extends ovip_axi_base_driver;
 		bready_pattern_mb.put(p);
 	endtask
 
-	`uvm_component_utils( ovip_axi_master_driver )
+	`uvm_component_param_utils( ovip_axi_master_driver#(IF_T) )
 
 	function new(string name = "ovip_axi_master_driver", uvm_component parent);
 		super.new(name, parent);

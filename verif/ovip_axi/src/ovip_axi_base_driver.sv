@@ -1,9 +1,9 @@
 `ifndef OVIP_AXI_BASE_DRIVER__SV
 `define OVIP_AXI_BASE_DRIVER__SV
 
-virtual class ovip_axi_base_driver extends uvm_driver#(ovip_axi_trans);
+virtual class ovip_axi_base_driver #(type IF_T = virtual ovip_axi_agent_if) extends uvm_driver#(ovip_axi_trans);
 	ovip_axi_agent_config cfg;
-	virtual ovip_axi_agent_if vif;
+	IF_T vif;
 
 	function new(string name = "ovip_axi_base_driver", uvm_component parent);
 		super.new(name, parent);
@@ -14,6 +14,9 @@ virtual class ovip_axi_base_driver extends uvm_driver#(ovip_axi_trans);
 
 	extern virtual task rst_monitor();
 	extern virtual function void reset_internal_state();
+
+	// Empty hook subclasses override to fork additional per-channel branches
+	virtual task extra_forks(); endtask
 
 	pure virtual task raddr_phase_driver(); // initiator
 	pure virtual task rdata_phase_driver(); // target
@@ -47,7 +50,7 @@ endfunction : reset_internal_state
 function void ovip_axi_base_driver::build_phase(uvm_phase phase);
 	super.build_phase(phase);
 
-	if (!uvm_config_db#(virtual ovip_axi_agent_if)::get(this, "", "vif", vif))
+	if (!uvm_config_db#(IF_T)::get(this, "", "vif", vif))
 	begin
 		`uvm_fatal("MISSING_VIF",$sformatf("Missing virtual interface - %s.vif", this.get_full_name()))
 	end
@@ -72,6 +75,7 @@ task ovip_axi_base_driver::run_phase(uvm_phase phase);
 				if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE)  waddr_phase_driver();
 				if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE)  wdata_phase_driver();
 				if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE)  bresp_phase_driver();
+				extra_forks();
 			join
 		`END_FIRST_OF
 	end

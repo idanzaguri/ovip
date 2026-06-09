@@ -1,7 +1,7 @@
 `ifndef OVIP_AXI_SLAVE_DRIVER__SV
 `define OVIP_AXI_SLAVE_DRIVER__SV
 
-class ovip_axi_slave_driver extends ovip_axi_base_driver;
+class ovip_axi_slave_driver #(type IF_T = virtual ovip_axi_agent_if) extends ovip_axi_base_driver #(IF_T);
 
 	ovip_axi_data_t DATA_MASK;
 	ovip_axi_id_t WR_ID_MASK;
@@ -31,7 +31,7 @@ class ovip_axi_slave_driver extends ovip_axi_base_driver;
 	endtask
 
 
-	`uvm_component_utils( ovip_axi_slave_driver )
+	`uvm_component_param_utils( ovip_axi_slave_driver#(IF_T) )
 
 	function new(string name = "ovip_axi_slave_driver", uvm_component parent);
 		super.new(name, parent);
