@@ -22,6 +22,7 @@ Same shape for every VIP added here:
 |---|---|
 | [`verif/ovip_axi/`](verif/ovip_axi/) | The AXI verification IP -- master + slave agents, monitor, configurable widths, sequence library. Start with the [VIP README](verif/ovip_axi/README.md). |
 | [`verif/ovip_axi_stream/`](verif/ovip_axi_stream/) | The AXI-Stream verification IP -- transmitter + receiver agents, monitor with the full set of spec-rule checks, scoreboard, sequence library. Covers AXI4-Stream and AXI5-Stream. Start with the [VIP README](verif/ovip_axi_stream/README.md). |
+| [`verif/ovip_ace/`](verif/ovip_ace/) | **:warning: EXPERIMENTAL, AI-GENERATED, UNVERIFIED.** The ACE / ACE-Lite verification IP, built as an extension of ovip_axi. Compiles and runs basic coherent traffic; the snoop channels and protocol checks are not yet confirmed. Read the [VIP README](verif/ovip_ace/README.md) banner before using. |
 | [`verif/ovip_common/`](verif/ovip_common/) | Shared utilities -- memory model, common type helpers. Imported by every VIP in the family. |
 | [`examples/ovip_axi/01_minimal_loopback/`](examples/ovip_axi/01_minimal_loopback/) | The smallest runnable example. Clone, `make`, watch `UVM_ERROR : 0`. |
 | [`examples/ovip_axi/02_out_of_order_reads/`](examples/ovip_axi/02_out_of_order_reads/) | Slave returns responses in reverse-issued order (3, 2, 1, 0). Demonstrates `rd_out_of_order_depth`, `rd_scheduling_alg`, and per-transaction `data_delay`. |
@@ -29,6 +30,7 @@ Same shape for every VIP added here:
 | [`examples/ovip_axi/04_response_timing/`](examples/ovip_axi/04_response_timing/) | Slave inserts a configurable `bresp_delay` after WLAST and a per-beat `data_delay[]` staircase on reads; channel watcher logs `t=…` on every handshake. |
 | [`examples/ovip_axi_stream/01_loopback/`](examples/ovip_axi_stream/01_loopback/) | Smallest AXI-Stream hello-world: transmitter + receiver on the same interface, 4 single-beat packets, success when `UVM_ERROR : 0`. |
 | [`examples/ovip_axi_stream/02_rx_to_mem/`](examples/ovip_axi_stream/02_rx_to_mem/) | Receiver-side subscriber pulls `trans.get_data_bytes()` (null/position bytes filtered out per the spec) and writes the resulting byte stream into `ovip_mem`. Round-trip verified by reading the mem back. |
+| [`examples/ovip_ace/01_coherent_loopback/`](examples/ovip_ace/01_coherent_loopback/) | **:warning: AI-generated, unverified VIP.** Master + interconnect ACE agents; coherent writes/reads with AxDOMAIN/AxSNOOP run to `UVM_ERROR : 0`. The snoop path is not yet confirmed. |
 
 ## Quickstart
 

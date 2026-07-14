@@ -6,8 +6,8 @@ class ovip_axi_agent extends uvm_agent;
 
 	virtual ovip_axi_agent_if vif;
 
-	ovip_axi_monitor        mon;
-	ovip_axi_base_driver    drv;
+	ovip_axi_monitor#()     mon;
+	ovip_axi_base_driver#() drv;
 	ovip_axi_base_sequencer sqr;
 
 

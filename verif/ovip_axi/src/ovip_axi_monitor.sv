@@ -68,7 +68,7 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 	semaphore addr_data_wr_phases_sync_sm;
 
 	// Response request port - used for active slave ports.
-	uvm_blocking_get_imp#(ovip_axi_trans, ovip_axi_monitor) response_req_port;
+	uvm_blocking_get_imp#(ovip_axi_trans, ovip_axi_monitor#(IF_T)) response_req_port;
 	ovip_axi_trans pending_rsp_req[$];
 
 

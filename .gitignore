@@ -1,3 +1,6 @@
+# Per-developer env overrides for bin/setenv.sh
+bin/setenv.local.sh
+
 # Editor / OS
 *.swp
 *.swo
