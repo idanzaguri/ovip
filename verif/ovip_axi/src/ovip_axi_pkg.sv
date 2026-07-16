@@ -25,6 +25,7 @@ package ovip_axi_pkg;
 	`include "ovip_axi_master_driver.sv"
 
 	`include "ovip_axi_slave_sequencer.sv"
+	`include "ovip_axi_trans_logger.sv"
 	`include "ovip_axi_agent.sv"
 	`include "ovip_axi_scoreboard.sv"
 

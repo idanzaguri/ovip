@@ -167,6 +167,23 @@ class ovip_ace_trans extends ovip_axi_trans;
 	endfunction : convert2string
 
 
+	// Append the ACE coherency columns to the base per-transaction log line.
+	virtual function string log_line();
+		string s = super.log_line();
+		if(direction == OVIP_ACE_SNOOP)
+			return $sformatf("%s | SNOOP %s CRRESP={IS=%0b,PD=%0b,DT=%0b}",
+				s, transaction_name(), snoop_resp.is_shared, snoop_resp.pass_dirty, snoop_resp.data_transfer);
+		s = $sformatf("%s | %s dom=%s", s, transaction_name(), domain.name());
+		if(tr_type == OVIP_AXI_READ_TRANS)
+			s = $sformatf("%s IS=%0b PD=%0b", s, is_shared, pass_dirty);
+		return s;
+	endfunction : log_line
+
+	virtual function string log_header();
+		return {super.log_header(), " | ACE: name dom [IS PD]"};
+	endfunction : log_header
+
+
 	// Carry the ACE additions across copy(). Needed because the agent installs a
 	// factory override (ovip_axi_trans -> ovip_ace_trans): the monitor's
 	// slave-response path and the scoreboard copy transactions through an

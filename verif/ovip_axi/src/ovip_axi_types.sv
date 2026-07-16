@@ -92,4 +92,12 @@
 		bit loop;
 	} ovip_axi_ready_pattern_t;
 
+	// Format for the per-transaction log file (see ovip_axi_trans_logger).
+	//   TABLE - fixed-column line built from ovip_axi_trans::log_line()
+	//   RAW   - the transaction's convert2string()
+	typedef enum bit {
+		OVIP_AXI_TRANS_LOG_TABLE,
+		OVIP_AXI_TRANS_LOG_RAW
+	} ovip_axi_trans_log_format_e;
+
 `endif

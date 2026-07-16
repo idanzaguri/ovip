@@ -63,6 +63,21 @@ class ovip_axi_agent_config extends uvm_object;
 	// When set, suppress the "delayed slave sequence" warning. Enable this if the
 	// slave sequence intentionally consumes simulation time before responding.
 	bit suppress_delayed_slave_seq_warning = 0;
+
+	// -----------------------------------------------------------------
+	// Transaction logging
+	// -----------------------------------------------------------------
+	// When enabled, the agent instantiates an ovip_axi_trans_logger that writes
+	// one line per completed transaction (with phase timestamps) to a text file.
+	// Works on active and passive agents.
+	bit enable_trans_log = 0;
+	// Per-agent log path. Empty => "<agent_tag or agent leaf name>_trans.log".
+	string trans_log_file = "";
+	// When non-empty, ALSO append to this shared file. Give the same path to
+	// several agents to get a single interleaved (time-ordered) combined log.
+	string trans_log_combined_file = "";
+	// Line format for both files (TABLE columns or RAW convert2string).
+	ovip_axi_trans_log_format_e trans_log_format = OVIP_AXI_TRANS_LOG_TABLE;
 	
 
 

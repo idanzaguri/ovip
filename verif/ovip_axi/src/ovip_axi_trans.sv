@@ -299,6 +299,49 @@ class ovip_axi_trans extends uvm_sequence_item;
 		return $sformatf("(%s) %s, ID=0x%0x, ADDR=0x%0x, SIZE=%s, LEN=%0d(+1)", get_name(), tr_type.name(), id, addr, size.name(), len);
 	endfunction : convert2string
 
+
+	// One compact, fixed-column line for the transaction log file (see
+	// ovip_axi_trans_logger). The four trailing columns are the phase
+	// timestamps (address / first data beat / last data beat / response),
+	// formatted with %t so they honour the logger's $timeformat. Subclasses
+	// (e.g. ovip_ace_trans) call super and append their own columns.
+	virtual function string log_line();
+		string dir_s = (tr_type == OVIP_AXI_WRITE_TRANS) ? "WR" : "RD";
+		string burst_s;
+		string resp_s;
+		case(burst)
+			OVIP_AXI_BURST_FIXED: burst_s = "FIXED";
+			OVIP_AXI_BURST_INCR : burst_s = "INCR";
+			OVIP_AXI_BURST_WRAP : burst_s = "WRAP";
+			default             : burst_s = "RES";
+		endcase
+		case(resp)
+			OVIP_AXI_RESP_OKAY  : resp_s = "OKAY";
+			OVIP_AXI_RESP_EXOKAY: resp_s = "EXOKAY";
+			OVIP_AXI_RESP_SLVERR: resp_s = "SLVERR";
+			default             : resp_s = "DECERR";
+		endcase
+		return $sformatf("%-3s %-6s %-12s %-6d %-5s %-6s %-7s %-11s %-11s %-11s %-11s",
+			dir_s,
+			$sformatf("0x%0x", id),
+			$sformatf("0x%08x", addr),
+			len + 1,
+			$sformatf("%0dB", 1 << size),
+			burst_s,
+			resp_s,
+			$sformatf("%0t", addr_phase_time),
+			$sformatf("%0t", data_phase_begin_time),
+			$sformatf("%0t", data_phase_time),
+			$sformatf("%0t", resp_phase_time));
+	endfunction : log_line
+
+	// Header row whose columns line up with log_line(). Subclasses append theirs.
+	virtual function string log_header();
+		return $sformatf("%-3s %-6s %-12s %-6s %-5s %-6s %-7s %-11s %-11s %-11s %-11s",
+			"dir", "id", "addr", "beats", "size", "burst", "resp",
+			"addr@", "dbeg@", "dend@", "resp@");
+	endfunction : log_header
+
 	function void calculate_transfer_starting_byte_lane();
 		int byte_lane_offset;
 		int burst_size = 1<<size;

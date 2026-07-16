@@ -10,6 +10,8 @@ class ovip_axi_agent extends uvm_agent;
 	ovip_axi_base_driver#() drv;
 	ovip_axi_base_sequencer sqr;
 
+	ovip_axi_trans_logger   trans_logger; // created only when cfg.enable_trans_log
+
 
 	`uvm_component_param_utils(ovip_axi_agent)
 
@@ -37,6 +39,16 @@ function void ovip_axi_agent::build_phase(uvm_phase phase);
 
 	mon = ovip_axi_monitor#()::type_id::create("mon", this);
 	mon.cfg = cfg;
+
+	if(cfg.enable_trans_log)
+	begin
+		string base = (cfg.agent_tag != "") ? cfg.agent_tag : get_name();
+		trans_logger = ovip_axi_trans_logger::type_id::create("trans_logger", this);
+		trans_logger.label              = base;
+		trans_logger.file_name          = (cfg.trans_log_file != "") ? cfg.trans_log_file : $sformatf("%s_trans.log", base);
+		trans_logger.combined_file_name = cfg.trans_log_combined_file;
+		trans_logger.format             = cfg.trans_log_format;
+	end
 
 	if(get_is_active())
 	begin
@@ -68,6 +80,9 @@ function void ovip_axi_agent::connect_phase(uvm_phase phase);
 	vif.is_active = (get_is_active());
 
 	mon.vif = vif;
+
+	if(trans_logger != null)
+		mon.analysis_port.connect(trans_logger.analysis_export);
 
 	if(get_is_active())
 	begin

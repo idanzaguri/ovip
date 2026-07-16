@@ -532,6 +532,8 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 	tr.data_beats[tr.burst_index] = wdata;
 	tr.strb_beats[tr.burst_index] = wstrb;
 
+	if(tr.burst_index == 0) tr.data_phase_begin_time = $time; // first W beat
+
 	// Check strobes and handle automatic byte lane alignment.
 	// This is relevant for all beats in the case of narrow transfers
 	// and always necessary on the first beat due to potential unaligned access.
@@ -554,6 +556,7 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 
 	tr.wuser = vif.monitor_cb.wuser&WUSER_MASK;
 	tr.got_last_beat = (vif.monitor_cb.wlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE);
+	if(tr.got_last_beat) tr.data_phase_time = $time; // last W beat
 endfunction : sample_write_data
 
 
@@ -561,6 +564,7 @@ function void ovip_axi_monitor::sample_write_response(ovip_axi_trans tr);
 	tr.id    = vif.monitor_cb.bid&WR_ID_MASK;
 	tr.resp  = ovip_axi_resp_t'(vif.monitor_cb.bresp);
 	tr.buser = vif.monitor_cb.buser&BUSER_MASK;
+	tr.resp_phase_time = $time; // B response
 	tr.transaction_finished = 1;
 	tr.completed_ev.trigger();
 endfunction : sample_write_response
@@ -598,6 +602,8 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
 
+	if(tr.burst_index == 0) tr.data_phase_begin_time = $time; // first R beat
+
 	tr.id = vif.monitor_cb.rid&RD_ID_MASK;
 
 	tr.got_last_beat = (vif.monitor_cb.rlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE);
@@ -606,6 +612,12 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 
 	if(tr.got_last_beat)
 		tr.resp = ovip_axi_resp_t'(vif.monitor_cb.rresp);
+
+	if(tr.got_last_beat)
+	begin
+		tr.data_phase_time = $time; // last R beat
+		tr.resp_phase_time = $time; // read response rides the last beat
+	end
 
 	// optional signals
 	tr.ruser = vif.monitor_cb.ruser & RUSER_MASK;

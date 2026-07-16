@@ -261,6 +261,46 @@ data-before-address writes (`data_start_event == OVIP_AXI_DATA_START_EV_BEFORE_A
 such a write is counted as soon as its **data** phase opens it -- not only once its
 address arrives -- so the limit reflects work that is genuinely in flight on the bus.
 
+## Transaction Logging
+
+Each agent can write a human-readable log of every completed transaction to a
+file -- handy for post-run inspection, diffing two runs, or feeding a script. It
+is off by default and enabled per agent through the config object. The log taps
+the monitor's analysis port, so it works on both active and passive agents (and
+on ACE agents, where the coherency fields are appended to each line).
+
+| `cfg` field | Default | Effect |
+|---|---|---|
+| `enable_trans_log` | `0` | Turn on this agent's log. |
+| `trans_log_file` | `""` | Per-agent file path. Empty -> `"<agent_tag or agent leaf name>_trans.log"`. |
+| `trans_log_combined_file` | `""` | When set, the agent *also* appends to this shared file. Give the same path to several agents to get one interleaved, time-ordered combined log. |
+| `trans_log_format` | `OVIP_AXI_TRANS_LOG_TABLE` | `TABLE` = fixed columns (below); `RAW` = the transaction's `convert2string()`. |
+
+Each line carries the transaction fields plus four phase timestamps -- address
+(`addr@`), first data beat (`dbeg@`), last data beat (`dend@`) and response
+(`resp@`) -- so you can see when each phase of a transaction happened:
+
+```
+end_time    agent     dir id     addr         beats  size  burst  resp    addr@       dbeg@       dend@       resp@
+17.500ns    master0   RD  0x0    0x00000000   1      4B    INCR   OKAY    4.500ns     17.500ns    17.500ns    17.500ns
+27.500ns    master0   WR  0x0    0x00000000   1      4B    INCR   OKAY    4.500ns     4.500ns     4.500ns     27.500ns
+```
+
+Example wiring in a test:
+
+```systemverilog
+master_cfg.enable_trans_log        = 1;
+master_cfg.agent_tag               = "master0";        // filename + line label
+master_cfg.trans_log_combined_file = "all_trans.log";  // optional shared log
+
+slave_cfg.enable_trans_log         = 1;
+slave_cfg.agent_tag                = "slave0";
+slave_cfg.trans_log_combined_file  = "all_trans.log";  // same path -> interleaved
+```
+
+This produces `master0_trans.log`, `slave0_trans.log`, and a combined
+`all_trans.log` with both agents' transactions ordered by completion time.
+
 ## Writing Sequences
 
 This section is about writing your own master-side and slave-side sequences against the VIP. The two sides follow different conventions; both are important to internalize before extending the testbench.

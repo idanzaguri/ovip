@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 Versions before 1.0.0 may include breaking changes between minor releases -- those
 breaks are called out explicitly in their changelog entry.
 
+## [Unreleased]
+
+### Added -- VIP
+
+- Per-transaction logging: `cfg.enable_trans_log` makes an agent write one line
+  per completed transaction (with address / data / response phase timestamps) to
+  a per-agent file, and `cfg.trans_log_combined_file` optionally appends to a
+  shared, time-ordered combined log. Off by default; works on active and passive
+  agents (and on ACE agents, which append coherency columns).
+
 ## [0.2.0] -- 2026-06-08
 
 ### Changed -- VIP (breaking)
