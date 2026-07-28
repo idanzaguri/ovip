@@ -71,8 +71,8 @@ class ovip_ace_trans extends ovip_axi_trans;
 	// use AWSNOOP[2:0] (MSB must be 0). Full Table D3-7 / D3-8 legality is
 	// enforced by the driver's check_trans_validity at runtime.
 	constraint c_snoop_msb {
-		(direction == OVIP_ACE_INITIATING) ->
-			((tr_type == OVIP_AXI_WRITE_TRANS) -> (snoop[3] == 1'b0));
+		(direction == OVIP_ACE_INITIATING && tr_type == OVIP_AXI_WRITE_TRANS) ->
+			(snoop[3] == 1'b0);
 	}
 
 	// BAR field: barriers are deprecated and not supported in v0.1.
