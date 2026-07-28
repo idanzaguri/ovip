@@ -6,6 +6,14 @@ this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] -- 2026-07-28
+
+### Added
+
+- `ovip_common_macros.sv` with `OVIP_BEGIN_FIRST_OF` / `OVIP_END_FIRST_OF` --
+  the "run these threads, keep the first one that finishes, kill the rest" fork
+  pattern that each VIP had been open-coding. Used by `ovip_axi` and `ovip_apb`.
+
 ## [0.2.0] -- 2026-06-08
 
 ### Changed (breaking)

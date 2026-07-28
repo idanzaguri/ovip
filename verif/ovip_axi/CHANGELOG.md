@@ -9,6 +9,8 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.3.0] -- 2026-07-28
+
 ### Added -- VIP
 
 - Per-transaction logging: `cfg.enable_trans_log` makes an agent write one line
@@ -16,6 +18,19 @@ breaks are called out explicitly in their changelog entry.
   a per-agent file, and `cfg.trans_log_combined_file` optionally appends to a
   shared, time-ordered combined log. Off by default; works on active and passive
   agents (and on ACE agents, which append coherency columns).
+- `extra_forks()` hook on the base driver and monitor, so an extending VIP can
+  add its own concurrent threads without copying the AXI ones.
+
+### Changed -- VIP
+
+- The four classes that hold a virtual-interface handle -- `ovip_axi_base_driver`,
+  `ovip_axi_master_driver`, `ovip_axi_slave_driver` and `ovip_axi_monitor` -- are
+  now parameterized on that type (`#(type IF_T = virtual ovip_axi_agent_if)`), so
+  a VIP with a wider interface can reuse the AXI driving and sampling logic.
+  The default keeps existing code working unchanged: a bare
+  `ovip_axi_master_driver` still means `#(virtual ovip_axi_agent_if)`.
+- References to the parameterized classes now carry an explicit `#()`, which
+  strict parsers require.
 
 ## [0.2.0] -- 2026-06-08
 

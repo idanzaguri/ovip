@@ -32,6 +32,10 @@ profiles via a runtime `cfg.profile` switch.
 
 ---
 
+Release history is in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
 ## At a glance
 
 `ovip_ace` reuses the entire AXI request/response engine and layers the ACE
