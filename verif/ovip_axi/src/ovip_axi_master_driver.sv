@@ -250,7 +250,7 @@ task ovip_axi_master_driver::rready_signal_driver();
 			`uvm_warning("OVIP_AXI/READY_PATTERN", "rready pattern cycles[] sum to 0 -- falling back to '{cycles:'{0,1}, loop:0} (always-ready)")
 			ready_pattern = '{cycles:'{0,1}, loop:0};
 		end
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			rready_pattern_mb.get(ready_pattern);
 			forever
 			begin
@@ -261,7 +261,7 @@ task ovip_axi_master_driver::rready_signal_driver();
 				end
 				if(!ready_pattern.loop) wait(0);
 			end
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : rready_signal_driver
 
@@ -531,7 +531,7 @@ task ovip_axi_master_driver::bready_signal_driver();
 			`uvm_warning("OVIP_AXI/READY_PATTERN", "bready pattern cycles[] sum to 0 -- falling back to '{cycles:'{0,1}, loop:0} (always-ready)")
 			ready_pattern = '{cycles:'{0,1}, loop:0};
 		end
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			bready_pattern_mb.get(ready_pattern);
 			forever
 			begin
@@ -542,7 +542,7 @@ task ovip_axi_master_driver::bready_signal_driver();
 				end
 				if(!ready_pattern.loop) wait(0);
 			end
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : bready_signal_driver
 

@@ -208,7 +208,7 @@ task ovip_axi_monitor::run_phase(uvm_phase phase);
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn);
 		`uvm_info(MESSAGE_TAG, "Reset has been de-asserted", UVM_DEBUG)
 
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			rst_monitor();
 			fork
 				if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE) raddr_phase_monitor();
@@ -228,7 +228,7 @@ task ovip_axi_monitor::run_phase(uvm_phase phase);
 
 				extra_forks();
 			join
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : run_phase
 
@@ -266,7 +266,7 @@ function ovip_axi_trans ovip_axi_monitor::new_wr_transaction();
 	fork
 		begin
 			ovip_axi_trans tr = new_wr_transaction;
-			`BEGIN_FIRST_OF
+			`OVIP_BEGIN_FIRST_OF
 			begin
 				#(cfg.tr_timeout_us*1us);
 				`uvm_fatal({MESSAGE_TAG, "AXI_MON/TIMEOUT"}, $sformatf("Transaction did not complete within %0d us (tr_timeout_us). %s", cfg.tr_timeout_us, tr.convert2string()))
@@ -274,7 +274,7 @@ function ovip_axi_trans ovip_axi_monitor::new_wr_transaction();
 			begin
 				tr.completed_ev.wait_on(); // triggered in sample_write_response (BRESP received)
 			end
-			`END_FIRST_OF
+			`OVIP_END_FIRST_OF
 		end
 	join_none
 endfunction : new_wr_transaction
@@ -286,7 +286,7 @@ function ovip_axi_trans ovip_axi_monitor::new_rd_transaction();
 	fork
 		begin
 			ovip_axi_trans tr = new_rd_transaction;
-			`BEGIN_FIRST_OF
+			`OVIP_BEGIN_FIRST_OF
 			begin
 				#(cfg.tr_timeout_us*1us);
 				`uvm_fatal({MESSAGE_TAG, "AXI_MON/TIMEOUT"}, $sformatf("Transaction did not complete within %0d us (tr_timeout_us). %s", cfg.tr_timeout_us, tr.convert2string()))
@@ -294,7 +294,7 @@ function ovip_axi_trans ovip_axi_monitor::new_rd_transaction();
 			begin
 				tr.completed_ev.wait_on(); // triggered in sample_read_data (last beat received)
 			end
-			`END_FIRST_OF
+			`OVIP_END_FIRST_OF
 		end
 	join_none
 

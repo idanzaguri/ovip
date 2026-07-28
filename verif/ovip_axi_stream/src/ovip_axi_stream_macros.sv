@@ -1,12 +1,13 @@
 `ifndef OVIP_AXI_STREAM_MACROS__SV
 `define OVIP_AXI_STREAM_MACROS__SV
 
-// Same idiom as ovip_axi: fork-into-first-of with explicit disable, used by
-// the monitor to multiplex reset handling against the long-running channel
-// checkers.
+// Family-wide fork idiom comes from ovip_common; this VIP uses the prefixed
+// `OVIP_BEGIN_FIRST_OF / `OVIP_END_FIRST_OF form internally. The unprefixed
+// aliases below are DEPRECATED and kept only so existing user code compiles.
+`include "ovip_common_macros.sv"
 `ifndef BEGIN_FIRST_OF
-	`define BEGIN_FIRST_OF fork begin fork
-	`define END_FIRST_OF   join_any disable fork; end join
+	`define BEGIN_FIRST_OF `OVIP_BEGIN_FIRST_OF
+	`define END_FIRST_OF   `OVIP_END_FIRST_OF
 `endif
 
 // Bounds-check a value against the runtime-configured signal width. Used by

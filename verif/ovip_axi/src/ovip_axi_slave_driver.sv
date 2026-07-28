@@ -123,7 +123,7 @@ task ovip_axi_slave_driver::raddr_phase_driver();
 			`uvm_warning("OVIP_AXI/READY_PATTERN", "arready pattern cycles[] sum to 0 -- falling back to '{cycles:'{0,1}, loop:0} (always-ready)")
 			ready_pattern = '{cycles:'{0,1}, loop:0};
 		end
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			arready_pattern_mb.get(ready_pattern);
 			forever
 			begin
@@ -134,7 +134,7 @@ task ovip_axi_slave_driver::raddr_phase_driver();
 				end
 				if(!ready_pattern.loop) wait(0);
 			end
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : raddr_phase_driver
 
@@ -147,7 +147,7 @@ task ovip_axi_slave_driver::waddr_phase_driver();
 			`uvm_warning("OVIP_AXI/READY_PATTERN", "awready pattern cycles[] sum to 0 -- falling back to '{cycles:'{0,1}, loop:0} (always-ready)")
 			ready_pattern = '{cycles:'{0,1}, loop:0};
 		end
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			awready_pattern_mb.get(ready_pattern);
 			forever
 			begin
@@ -158,7 +158,7 @@ task ovip_axi_slave_driver::waddr_phase_driver();
 				end
 				if(!ready_pattern.loop) wait(0);
 			end
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : waddr_phase_driver
 
@@ -170,7 +170,7 @@ task ovip_axi_slave_driver::wdata_phase_driver();
 			`uvm_warning("OVIP_AXI/READY_PATTERN", "wready pattern cycles[] sum to 0 -- falling back to '{cycles:'{0,1}, loop:0} (always-ready)")
 			ready_pattern = '{cycles:'{0,1}, loop:0};
 		end
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			wready_pattern_mb.get(ready_pattern);
 			forever
 			begin
@@ -181,7 +181,7 @@ task ovip_axi_slave_driver::wdata_phase_driver();
 				end
 				if(!ready_pattern.loop) wait(0);
 			end
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : wdata_phase_driver
 

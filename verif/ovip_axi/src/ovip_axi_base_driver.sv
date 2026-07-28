@@ -66,7 +66,7 @@ task ovip_axi_base_driver::run_phase(uvm_phase phase);
 		reset_internal_state();
 		drive_reset_values();
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn); // Waiting for sync reset de-assertion
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			rst_monitor();
 			transaction_acceptor();
 			fork
@@ -77,7 +77,7 @@ task ovip_axi_base_driver::run_phase(uvm_phase phase);
 				if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE)  bresp_phase_driver();
 				extra_forks();
 			join
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 
 endtask : run_phase

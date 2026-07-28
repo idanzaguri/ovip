@@ -12,6 +12,13 @@ whether that's a bug fix, a new feature, or documentation.
    limitation if your change addresses one.
 4. The maintainer reviews each pull request before it is merged.
 
+> **Commit with a GitHub-linked email.** You are credited on the Contributors
+> page only when your commits' **author** email is one that is verified on your
+> GitHub account (Settings > Emails), or your
+> `NNNN+username@users.noreply.github.com` address. Otherwise your name shows in
+> the history but not in the contributor list. If you already pushed with the
+> wrong email, add and verify it on GitHub and the credit applies retroactively.
+
 By submitting a contribution you agree that it is licensed under the project's
 license (Apache-2.0, see [LICENSE](LICENSE)) -- inbound contributions are under
 the same terms as the project (Apache-2.0, Section 5).

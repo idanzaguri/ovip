@@ -106,7 +106,7 @@ task ovip_axi_stream_monitor::run_phase(uvm_phase phase);
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn);
 		`uvm_info({MESSAGE_TAG, "AXIS_MON"}, "reset deasserted", UVM_HIGH)
 
-		`BEGIN_FIRST_OF
+		`OVIP_BEGIN_FIRST_OF
 			rst_monitor();
 			fork
 				exit_from_reset_check();
@@ -116,7 +116,7 @@ task ovip_axi_stream_monitor::run_phase(uvm_phase phase);
 				wakeup_check();
 				bus_monitor();
 			join
-		`END_FIRST_OF
+		`OVIP_END_FIRST_OF
 	end
 endtask : run_phase
 

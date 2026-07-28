@@ -1,8 +1,14 @@
 `ifndef OVIP_AXI_MACROS__SV
 `define OVIP_AXI_MACROS__SV
 
-`define BEGIN_FIRST_OF fork begin fork
-`define END_FIRST_OF join_any disable fork; end join
+// Family-wide fork idiom comes from ovip_common; this VIP uses the prefixed
+// `OVIP_BEGIN_FIRST_OF / `OVIP_END_FIRST_OF form internally. The unprefixed
+// aliases below are DEPRECATED and kept only so existing user code compiles.
+`include "ovip_common_macros.sv"
+`ifndef BEGIN_FIRST_OF
+	`define BEGIN_FIRST_OF `OVIP_BEGIN_FIRST_OF
+	`define END_FIRST_OF   `OVIP_END_FIRST_OF
+`endif
 
 
 `define OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH(tag, signal, value, width, err_flag)\
