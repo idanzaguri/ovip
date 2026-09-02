@@ -65,6 +65,7 @@ task ovip_axi_stream_master_driver::run_phase(uvm_phase phase);
 			`uvm_info({MESSAGE_TAG, "AXIS_DRV"}, "Reset killed an in-flight packet -- completing it to release the sequencer", UVM_LOW)
 			seq_item_port.item_done();
 			item_in_progress = 0;
+			req = null;
 		end
 		if(vif.master_cb.aresetn == 1'b0)
 			@(vif.master_cb iff vif.master_cb.aresetn);
@@ -93,7 +94,11 @@ endfunction : drive_reset_values
 task ovip_axi_stream_master_driver::tx_driver();
 	forever
 	begin
-		seq_item_port.get_next_item(req);
+		if(req == null)
+		begin
+			seq_item_port.get_next_item(req);
+			@(vif.master_cb);
+		end
 		item_in_progress = 1;
 		if(req.data_beats.size() == 0)
 			`uvm_warning({MESSAGE_TAG, "AXIS_DRV"}, "received an item with no beats -- ignoring (a wire-level packet needs at least one transfer).")
@@ -103,6 +108,7 @@ task ovip_axi_stream_master_driver::tx_driver();
 		item_in_progress = 0;
 		// Inter-transaction gap.
 		repeat(req.delay_until_next_trans) @(vif.master_cb);
+		seq_item_port.try_next_item(req);
 	end
 endtask : tx_driver
 

@@ -79,6 +79,7 @@ task ovip_apb_master_driver::run_phase(uvm_phase phase);
 			`uvm_info({MESSAGE_TAG, "APB_DRV"}, "Reset killed an in-flight transfer -- completing it to release the sequencer", UVM_LOW)
 			seq_item_port.item_done();
 			item_in_progress = 0;
+			req = null;
 		end
 		if(vif.master_cb.presetn == 1'b0)
 			@(vif.master_cb iff vif.master_cb.presetn);
@@ -105,17 +106,22 @@ endfunction : drive_reset_values
 task ovip_apb_master_driver::tx_driver();
 	forever
 	begin
-		seq_item_port.get_next_item(req);
+		if(req == null)
+		begin
+			seq_item_port.get_next_item(req);
+			@(vif.master_cb);
+		end
 		item_in_progress = 1;
 		void'(check_trans_validity(req));
 		drive_transfer(req);
 		seq_item_port.item_done();
 		item_in_progress = 0;
 
-		// Post-transfer state: schedule idle values now. If the sequence
-		// supplies the next item in zero time and this item asked for a
-		// back-to-back follow-up (delay 0), the next SETUP assignments
-		// overwrite these in the same timestep -- PSEL never drops.
+		// Post-transfer state: schedule idle values now. When try_next_item
+		// hands over the next item in ZERO time (we are still at the
+		// completion edge), its SETUP assignments overwrite these in the
+		// same timestep -- PSEL never drops: the spec's direct
+		// completion-to-SETUP transition, at no alignment cost.
 		if(cfg.drive_reset_values_when_idle)
 			drive_reset_values();
 		else
@@ -123,7 +129,9 @@ task ovip_apb_master_driver::tx_driver();
 			vif.master_cb.psel    <= 1'b0;
 			vif.master_cb.penable <= 1'b0;
 		end
+
 		repeat(req.delay_until_next_trans) @(vif.master_cb);
+		seq_item_port.try_next_item(req);
 	end
 endtask : tx_driver
 

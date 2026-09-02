@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 Versions before 1.0.0 may include breaking changes between minor releases -- those
 breaks are called out explicitly in their changelog entry.
 
+## [Unreleased]
+
+## [0.1.1] -- 2026-09-02
+
+### Fixed -- VIP
+
+- The master driver now aligns to the clocking event before driving an item a
+  sequence delivered mid-cycle (a #-timed test, or any sequence not
+  synchronized to the bus clock). Unaligned entry meant the SETUP cycle folded
+  into the ACCESS edge (PSEL and PENABLE rising together), and a spec-correct
+  completer ignored the transfer. A held item from `try_next_item` skips the
+  alignment, so back-to-back operation is unchanged: the next transfer still
+  starts on the completion edge.
+
 ## [0.1.0] -- 2026-07-26
 
 Initial release. The VIP ships with APB3 and APB4 support (ARM IHI 0024E).
