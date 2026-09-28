@@ -154,7 +154,7 @@ The wire picture is identical -- only who shifts the data differs.
 
 ### Burst-type coverage
 
-INCR, FIXED, and WRAP are all supported under auto-alignment, including the corners -- narrow transfers, unaligned start addresses, FIXED with `burst_size == bus_width` (covered by `ovip_axi_fixed_full_width_alignment_test`), and WRAP at all spec-legal lengths (covered by `ovip_axi_wrap_burst_test`). On a full-width transfer with an aligned address the lane offset is zero, so the master driver and slave/monitor sample the data unshifted -- exactly what the user wrote in `data_beats[i]`. The monitor enforces WRAP's spec rules (length ∈ {2,4,8,16} and start address aligned to `burst_size`).
+INCR, FIXED, and WRAP are all supported under auto-alignment, including the corners -- narrow transfers, unaligned start addresses, FIXED with `burst_size == bus_width` at an aligned and an unaligned address (covered by `ovip_axi_fixed_full_width_alignment_test`), and WRAP at all spec-legal lengths (covered by `ovip_axi_wrap_burst_test`). On a full-width transfer with an aligned address the lane offset is zero, so the master driver and slave/monitor sample the data unshifted -- exactly what the user wrote in `data_beats[i]`. The monitor enforces WRAP's spec rules (length ∈ {2,4,8,16} and start address aligned to `burst_size`).
 
 ## Ready Patterns
 

@@ -236,7 +236,7 @@ endfunction : drive_r_channel_reset_values
 
 
 function void ovip_axi_slave_driver::drive_rd_channel(ovip_axi_trans tr);
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0))
+	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
 		vif.slave_cb.rdata <= tr.data_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	else
 		vif.slave_cb.rdata <= tr.data_beats[tr.burst_index];

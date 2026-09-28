@@ -9,6 +9,21 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+### Fixed -- VIP
+
+- An unaligned full-width FIXED burst now keeps every beat on its first
+  beat's byte lanes, as AXI A3.4.1 requires. Both drivers and the monitor
+  placed and sampled beats 1..N of a full-width burst from lane 0. That is
+  right for INCR and WRAP, but a FIXED burst repeats its address. A
+  VIP-to-VIP test could not see it, because both ends made the same error,
+  so `ovip_axi_fixed_full_width_alignment_test` now also runs an unaligned
+  burst and checks its lanes on the bus. The monitor now checks the strobes
+  of every FIXED beat against those lanes, so a manually aligned full-width
+  FIXED burst that put beats 1..N on lane 0 now reports `INVALID_WSTRB`.
+- The WRAP byte-lane calculation is done in 64 bits. On an address at or
+  above 2^31 a 32-bit `int` overflowed, the modulo went negative, and the
+  byte lanes came out as `[-1:-2]`.
+
 ## [0.3.0] -- 2026-07-28
 
 ### Added -- VIP

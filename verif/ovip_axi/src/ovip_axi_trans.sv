@@ -354,11 +354,10 @@ class ovip_axi_trans extends uvm_sequence_item;
 		transfer_starting_byte_lane[0] += (addr % burst_size);
 
 		is_narrow_transfer = (burst_size != int'(bus_width));
-		// For a non-narrow transfer (burst_size == bus_width) every beat fills the whole
-		// data bus starting at byte lane 0, so there are no per-beat lane offsets to compute.
-		// Only narrow transfers (and the unaligned first beat) need the per-beat calculation below.
-		if(!is_narrow_transfer) return;
 
+		// FIXED repeats its address, so every beat uses the first beat's byte
+		// lanes, unaligned offset included (AXI A3.4.1). That holds at full
+		// width too, so this comes before the full-width return below.
 		if(burst == OVIP_AXI_BURST_FIXED)
 		begin
 			for(int ii=1; ii<=len; ii++)
@@ -366,18 +365,25 @@ class ovip_axi_trans extends uvm_sequence_item;
 			return;
 		end
 
+		// For a non-narrow transfer (burst_size == bus_width) every beat fills the whole
+		// data bus starting at byte lane 0, so there are no per-beat lane offsets to compute.
+		// Only narrow transfers (and the unaligned first beat) need the per-beat calculation below.
+		if(!is_narrow_transfer) return;
+
 		if(burst == OVIP_AXI_BURST_WRAP)
 		begin
 			// WRAP: each beat advances by burst_size and the address wraps at
 			// `total_size = burst_size * (len+1)` (a power of 2 by spec).
 			// `wrap_low` is the start of the wrap window; beat addresses stay
 			// in [wrap_low, wrap_low + total_size).
-			int total_size = burst_size * (len + 1);
-			int wrap_low   = addr & ~(total_size - 1);
+			// 64-bit math: a 32-bit int overflows on addresses at or above 2^31
+			// and the modulo then goes negative (byte lanes came out as [-1:-2])
+			longint total_size = burst_size * (len + 1);
+			longint wrap_low   = longint'(addr) & ~(total_size - 1);
 			for(int ii=1; ii<=len; ii++)
 			begin
-				int beat_addr = wrap_low + ((addr - wrap_low + ii*burst_size) % total_size);
-				transfer_starting_byte_lane[ii] = beat_addr % bus_width;
+				longint beat_addr = wrap_low + ((longint'(addr) - wrap_low + ii*burst_size) % total_size);
+				transfer_starting_byte_lane[ii] = int'(beat_addr % bus_width);
 			end
 			return;
 		end

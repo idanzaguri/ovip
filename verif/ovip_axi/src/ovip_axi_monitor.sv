@@ -535,9 +535,10 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 	if(tr.burst_index == 0) tr.data_phase_begin_time = $time; // first W beat
 
 	// Check strobes and handle automatic byte lane alignment.
-	// This is relevant for all beats in the case of narrow transfers
-	// and always necessary on the first beat due to potential unaligned access.
-	if(tr.is_narrow_transfer || (tr.valid_address_phase && tr.burst_index == 0))
+	// This is relevant for all beats in the case of narrow transfers,
+	// always necessary on the first beat due to potential unaligned access,
+	// and on every beat of a FIXED burst, which repeats the first beat's lanes.
+	if(tr.is_narrow_transfer || (tr.valid_address_phase && (tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED)))
 	begin
 		string err_msg[$];
 		if(!tr.check_strb(tr.burst_index, tr.burst_index, err_msg))
@@ -598,7 +599,10 @@ endfunction : sample_read_address
 
 function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 	ovip_axi_data_t	rdata = vif.monitor_cb.rdata & DATA_MASK;
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0))
+	// FIXED only after an address phase: the R stability check samples into
+	// address-less items, whose burst field reads FIXED (2'b00) by default.
+	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0
+	                                     || (tr.valid_address_phase && tr.burst == OVIP_AXI_BURST_FIXED)))
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
 
@@ -675,7 +679,7 @@ function void ovip_axi_monitor::check_wr_data_phase_post_address(ovip_axi_trans 
 		begin
 			tr.strb_beats[ii] >>= tr.transfer_starting_byte_lane[ii];
 			tr.data_beats[ii] >>= tr.transfer_starting_byte_lane[ii]*8;
-			if(!tr.is_narrow_transfer) break;
+			if(!tr.is_narrow_transfer && tr.burst != OVIP_AXI_BURST_FIXED) break;
 		end
 	end
 endfunction : check_wr_data_phase_post_address

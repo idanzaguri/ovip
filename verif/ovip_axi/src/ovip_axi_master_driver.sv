@@ -228,7 +228,7 @@ endtask : raddr_phase_driver
 function void ovip_axi_master_driver::sample_rd_response(ovip_axi_trans tr);
 
 	ovip_axi_data_t	rdata = vif.master_cb.rdata & DATA_MASK;
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0))
+	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
 
@@ -356,7 +356,7 @@ endfunction : drive_w_channel_reset_values
 
 
 function void ovip_axi_master_driver::drive_w_channel(ovip_axi_trans tr);
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0))
+	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
 	begin
 		vif.master_cb.wdata <= tr.data_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index]*8;
 		vif.master_cb.wstrb <= tr.strb_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index];
