@@ -9,6 +9,8 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.3.1] -- 2026-09-28
+
 ### Fixed -- VIP
 
 - An unaligned full-width FIXED burst now keeps every beat on its first
