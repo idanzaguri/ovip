@@ -504,6 +504,7 @@ function void ovip_axi_monitor::sample_write_address(ovip_axi_trans tr);
 	tr.addr   = vif.monitor_cb.awaddr&ADDR_MASK;
 	tr.id     = vif.monitor_cb.awid  &WR_ID_MASK;
 	tr.awuser = vif.monitor_cb.awuser&AWUSER_MASK;
+	if(cfg.awprot_en)   tr.axprot   = vif.monitor_cb.awprot;
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
 	begin
@@ -519,7 +520,6 @@ function void ovip_axi_monitor::sample_write_address(ovip_axi_trans tr);
 
 	if(cfg.awlock_en)   tr.axlock   = vif.monitor_cb.awlock;
 	if(cfg.awcache_en)  tr.axcache  = vif.monitor_cb.awcache;
-	if(cfg.awprot_en)   tr.axprot   = vif.monitor_cb.awprot;
 	if(cfg.awqos_en)    tr.axqos    = vif.monitor_cb.awqos;
 	if(cfg.awregion_en) tr.axregion = vif.monitor_cb.awregion;
 endfunction : sample_write_address
@@ -575,6 +575,7 @@ function void ovip_axi_monitor::sample_read_address(ovip_axi_trans tr);
 	tr.id     = vif.monitor_cb.arid  &RD_ID_MASK;
 	tr.addr   = vif.monitor_cb.araddr&ADDR_MASK;
 	tr.aruser = vif.monitor_cb.aruser&ARUSER_MASK;
+	if(cfg.arprot_en)   tr.axprot   = vif.monitor_cb.arprot;
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
 	begin
@@ -590,7 +591,6 @@ function void ovip_axi_monitor::sample_read_address(ovip_axi_trans tr);
 
 	if(cfg.arlock_en)   tr.axlock   = vif.monitor_cb.arlock;
 	if(cfg.arcache_en)  tr.axcache  = vif.monitor_cb.arcache;
-	if(cfg.arprot_en)   tr.axprot   = vif.monitor_cb.arprot;
 	if(cfg.arqos_en)    tr.axqos    = vif.monitor_cb.arqos;
 	if(cfg.arregion_en) tr.axregion = vif.monitor_cb.arregion;
 
@@ -602,7 +602,7 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 	// FIXED only after an address phase: the R stability check samples into
 	// address-less items, whose burst field reads FIXED (2'b00) by default.
 	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0
-	                                     || (tr.valid_address_phase && tr.burst == OVIP_AXI_BURST_FIXED)))
+			|| (tr.valid_address_phase && tr.burst == OVIP_AXI_BURST_FIXED)))
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
 

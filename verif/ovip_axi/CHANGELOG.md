@@ -9,6 +9,15 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+### Fixed -- VIP
+
+- An AXI4-Lite agent now drives and samples AWPROT and ARPROT, which
+  AXI4-Lite has (IHI0022 B1.1). The master driver returned before driving
+  them, and the monitor returned before sampling, X-checking and
+  stability-checking them. So a Lite master left AxPROT floating and a Lite
+  monitor always reported 0. They stay gated by `awprot_en` and
+  `arprot_en`, so an agent that does not enable them is unchanged.
+
 ## [0.3.1] -- 2026-09-28
 
 ### Fixed -- VIP

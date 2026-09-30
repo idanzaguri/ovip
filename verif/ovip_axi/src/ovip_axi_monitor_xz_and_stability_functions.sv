@@ -16,6 +16,7 @@ task ovip_axi_monitor::aw_channel_signal_stability_check();
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(id    , AWID   )
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(addr  , AWADDR )
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(awuser, AWUSER )
+				if(cfg.awprot_en)   `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axprot  , AWPROT  )
 				if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE)
 				begin
 					`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(len  , AWLEN  )
@@ -23,7 +24,6 @@ task ovip_axi_monitor::aw_channel_signal_stability_check();
 					`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(burst, AWBURST)
 					if(cfg.awlock_en)   `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axlock  , AWLOCK  )
 					if(cfg.awcache_en)  `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axcache , AWCACHE )
-					if(cfg.awprot_en)   `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axprot  , AWPROT  )
 					if(cfg.awqos_en)    `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axqos   , AWQOS   )
 					if(cfg.awregion_en) `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axregion, AWREGION)
 				end
@@ -110,6 +110,7 @@ task ovip_axi_monitor::ar_channel_signal_stability_check();
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(id    , ARID   )
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(addr  , ARADDR )
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(aruser, ARUSER )
+				if(cfg.arprot_en)   `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axprot  , ARPROT  )
 				if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE)
 				begin
 					`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(len   , ARLEN  )
@@ -117,7 +118,6 @@ task ovip_axi_monitor::ar_channel_signal_stability_check();
 					`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(burst , ARBURST)
 					if(cfg.arlock_en)   `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axlock  , ARLOCK  )
 					if(cfg.arcache_en)  `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axcache , ARCACHE )
-					if(cfg.arprot_en)   `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axprot  , ARPROT  )
 					if(cfg.arqos_en)    `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axqos   , ARQOS   )
 					if(cfg.arregion_en) `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(axregion, ARREGION)
 				end
@@ -172,6 +172,7 @@ function void ovip_axi_monitor::check_xz_write_address();
 	`OVIP_AXI_MON_XZ_CHECK(awid  &WR_ID_MASK, AWID)
 	`OVIP_AXI_MON_XZ_CHECK(awaddr&ADDR_MASK , AWADDR)
 	`OVIP_AXI_MON_XZ_CHECK(awuser& AWUSER_MASK, AWUSER)
+	if(cfg.awprot_en)   `OVIP_AXI_MON_XZ_CHECK(awprot  , AWPROT  )
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
 
@@ -181,7 +182,6 @@ function void ovip_axi_monitor::check_xz_write_address();
 
 	if(cfg.awlock_en)   `OVIP_AXI_MON_XZ_CHECK(awlock  , AWLOCK  )
 	if(cfg.awcache_en)  `OVIP_AXI_MON_XZ_CHECK(awcache , AWCACHE )
-	if(cfg.awprot_en)   `OVIP_AXI_MON_XZ_CHECK(awprot  , AWPROT  )
 	if(cfg.awqos_en)    `OVIP_AXI_MON_XZ_CHECK(awqos   , AWQOS   )
 	if(cfg.awregion_en) `OVIP_AXI_MON_XZ_CHECK(awregion, AWREGION)
 
@@ -206,6 +206,7 @@ function void ovip_axi_monitor::check_xz_read_address();
 	`OVIP_AXI_MON_XZ_CHECK(arid  &RD_ID_MASK, ARID)
 	`OVIP_AXI_MON_XZ_CHECK(araddr&ADDR_MASK , ARADDR)
 	`OVIP_AXI_MON_XZ_CHECK(aruser& ARUSER_MASK, ARUSER)
+	if(cfg.arprot_en)   `OVIP_AXI_MON_XZ_CHECK(arprot  , ARPROT  )
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
 
@@ -215,7 +216,6 @@ function void ovip_axi_monitor::check_xz_read_address();
 
 	if(cfg.arlock_en)   `OVIP_AXI_MON_XZ_CHECK(arlock  , ARLOCK  )
 	if(cfg.arcache_en)  `OVIP_AXI_MON_XZ_CHECK(arcache , ARCACHE )
-	if(cfg.arprot_en)   `OVIP_AXI_MON_XZ_CHECK(arprot  , ARPROT  )
 	if(cfg.arqos_en)    `OVIP_AXI_MON_XZ_CHECK(arqos   , ARQOS   )
 	if(cfg.arregion_en) `OVIP_AXI_MON_XZ_CHECK(arregion, ARREGION)
 

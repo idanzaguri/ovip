@@ -48,7 +48,7 @@ class ovip_axi_master_driver #(type IF_T = virtual ovip_axi_agent_if) extends ov
 
 	mailbox#(ovip_axi_ready_pattern_t) rready_pattern_mb;
 	mailbox#(ovip_axi_ready_pattern_t) bready_pattern_mb;
-	
+
 	task put_rready_pattern(int unsigned c[$], bit repeat_pattern = 0);
 		ovip_axi_ready_pattern_t p = '{cycles:c, loop: repeat_pattern};
 		rready_pattern_mb.put(p);
@@ -161,6 +161,7 @@ endfunction : drive_reset_values
 function void ovip_axi_master_driver::drive_ar_channel_reset_values();
 	vif.master_cb.araddr <= 0;
 	if(cfg.rd_id_width) vif.master_cb.arid <= 0;
+	if(cfg.arprot_en)   vif.master_cb.arprot <= 0;
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
 
 	vif.master_cb.arlen   <= 0;
@@ -170,7 +171,6 @@ function void ovip_axi_master_driver::drive_ar_channel_reset_values();
 	if(cfg.aruser_width) vif.master_cb.aruser   <= 0;
 	if(cfg.arlock_en)    vif.master_cb.arlock   <= 0;
 	if(cfg.arcache_en)   vif.master_cb.arcache  <= 0;
-	if(cfg.arprot_en)    vif.master_cb.arprot   <= 0;
 	if(cfg.arqos_en)     vif.master_cb.arqos    <= 0;
 	if(cfg.arregion_en)  vif.master_cb.arregion <= 0;
 
@@ -180,6 +180,7 @@ endfunction : drive_ar_channel_reset_values
 function void ovip_axi_master_driver::drive_ar_channel(ovip_axi_trans tr);
 	vif.master_cb.araddr <= tr.addr;
 	if(cfg.rd_id_width) vif.master_cb.arid <= tr.id;
+	if(cfg.arprot_en)   vif.master_cb.arprot <= tr.axprot;
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
 
 	vif.master_cb.arlen   <= tr.len;
@@ -189,7 +190,6 @@ function void ovip_axi_master_driver::drive_ar_channel(ovip_axi_trans tr);
 	if(cfg.aruser_width) vif.master_cb.aruser   <= tr.aruser;
 	if(cfg.arlock_en)    vif.master_cb.arlock   <= tr.axlock;
 	if(cfg.arcache_en)   vif.master_cb.arcache  <= tr.axcache;
-	if(cfg.arprot_en)    vif.master_cb.arprot   <= tr.axprot;
 	if(cfg.arqos_en)     vif.master_cb.arqos    <= tr.axqos;
 	if(cfg.arregion_en)  vif.master_cb.arregion <= tr.axregion;
 
@@ -311,6 +311,7 @@ function void ovip_axi_master_driver::drive_aw_channel_reset_values();
 	vif.master_cb.awaddr <= 0;
 	if(cfg.awuser_width) vif.master_cb.awuser <= 0;
 	if(cfg.wr_id_width)  vif.master_cb.awid   <= 0;
+	if(cfg.awprot_en)    vif.master_cb.awprot <= 0;
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
 
@@ -320,7 +321,6 @@ function void ovip_axi_master_driver::drive_aw_channel_reset_values();
 
 	if(cfg.awlock_en)   vif.master_cb.awlock   <= 0;
 	if(cfg.awcache_en)  vif.master_cb.awcache  <= 0;
-	if(cfg.awprot_en)   vif.master_cb.awprot   <= 0;
 	if(cfg.awqos_en)    vif.master_cb.awqos    <= 0;
 	if(cfg.awregion_en) vif.master_cb.awregion <= 0;
 endfunction : drive_aw_channel_reset_values
@@ -330,6 +330,7 @@ function void ovip_axi_master_driver::drive_aw_channel(ovip_axi_trans tr);
 	vif.master_cb.awaddr  <= tr.addr;
 	if(cfg.awuser_width) vif.master_cb.awuser <= tr.awuser;
 	if(cfg.wr_id_width)  vif.master_cb.awid   <= tr.id;
+	if(cfg.awprot_en)    vif.master_cb.awprot <= tr.axprot;
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
 
@@ -339,7 +340,6 @@ function void ovip_axi_master_driver::drive_aw_channel(ovip_axi_trans tr);
 
 	if(cfg.awlock_en)   vif.master_cb.awlock   <= tr.axlock;
 	if(cfg.awcache_en)  vif.master_cb.awcache  <= tr.axcache;
-	if(cfg.awprot_en)   vif.master_cb.awprot   <= tr.axprot;
 	if(cfg.awqos_en)    vif.master_cb.awqos    <= tr.axqos;
 	if(cfg.awregion_en) vif.master_cb.awregion <= tr.axregion;
 endfunction : drive_aw_channel
@@ -694,7 +694,7 @@ task ovip_axi_master_driver::transaction_acceptor();
 			// Calculate byte lanes alignment offsets if needed.
 			if(cfg.auto_byte_lanes_alignment)
 				req.calculate_transfer_starting_byte_lane();
-			
+
 			// Verify that the transaction is valid.
 			if(check_trans_validity(req) && !req.trust_me_i_am_an_engineer)
 				`uvm_fatal("AXI_MASTER_DRV", "Something is wrong with this transaction. Check the UVM_WARNINGs above for details")
