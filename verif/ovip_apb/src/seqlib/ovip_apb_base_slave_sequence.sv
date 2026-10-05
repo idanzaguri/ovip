@@ -44,6 +44,13 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 
 	protected int memory_word_size;
 
+	// A transfer outside the memory's valid ranges (ovip_mem::add_valid_range)
+	// is answered PSLVERR and never touches the memory: a read returns 0, a
+	// write is not committed. Reported as SLAVE_SEQ/OUT_OF_RANGE unless this
+	// is cleared, for a test that aims outside on purpose. With no valid
+	// range set the check is off and every address is in range.
+	bit report_out_of_range = 1;
+
 	`uvm_declare_p_sequencer(ovip_apb_slave_sequencer)
 	`uvm_object_utils(ovip_apb_base_slave_sequence)
 
@@ -113,6 +120,16 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 	endfunction : decompose_addr
 
 
+	// The transfer's data bytes, at its bus-aligned address, against the
+	// memory's valid ranges. 1 with no memory or no range set.
+	virtual function bit request_in_range(ovip_apb_trans req);
+		int unsigned dw = p_sequencer.cfg.data_width;
+		ovip_apb_addr_t bus_addr = (req.addr / dw) * dw;
+		if(mem == null || mem.num_valid_ranges() == 0) return 1;
+		return mem.is_valid(bus_addr, dw);
+	endfunction : request_in_range
+
+
 	virtual function void write_transaction_to_mem(ovip_apb_trans req);
 		longint unsigned word_addr;
 		int unsigned lane;
@@ -151,6 +168,15 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 
 			req.slverr          = req.monitor_error ? 1'b1 : get_slverr(req);
 			req.num_wait_states = get_num_wait_states(req);
+
+			// outside the memory's valid ranges: PSLVERR, the memory untouched
+			if(!req.slverr && !request_in_range(req))
+			begin
+				if(report_out_of_range)
+					`uvm_error("SLAVE_SEQ/OUT_OF_RANGE", $sformatf("%s: %s at 0x%0h touches an address outside the memory's %0d valid range(s): answering PSLVERR, memory untouched",
+						p_sequencer.get_full_name(), req.write ? "write" : "read", req.addr, mem.num_valid_ranges()))
+				req.slverr = 1'b1;
+			end
 
 			if(req.write)
 			begin

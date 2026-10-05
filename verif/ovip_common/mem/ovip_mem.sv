@@ -17,6 +17,15 @@ class ovip_mem extends uvm_component;
 	word_t init_pattern = 'hdeadbeef;
 	bit randomize_uninitialized = 0;
 
+	// The valid ranges. With none set every address is valid, as always.
+	// Once any is set, an access that touches a byte outside all of them
+	// reports MEM/OUT_OF_RANGE and does nothing: a slave's memory is then
+	// bounded to the ranges the slave owns, and a transaction delivered to
+	// the wrong place is named the moment it arrives. ovip_mem_space sets
+	// them from its map.
+	typedef struct { addr_t base; addr_t size; } range_t;
+	protected range_t valid_ranges[$];
+
 	`uvm_component_utils(ovip_mem)
 
 	function new(string name = "ovip_mem", uvm_component parent);
@@ -60,6 +69,26 @@ class ovip_mem extends uvm_component;
 	// Basic memory dump (debug).
 	extern virtual function void print();
 
+	// The valid ranges: add one, count them, and test a range of bytes
+	// against them (1 when none is set, or every byte of [addr, addr + size)
+	// lies in some range).
+	extern virtual function void add_valid_range(addr_t base, addr_t size);
+	extern virtual function int  num_valid_ranges();
+	extern virtual function bit  is_valid(addr_t addr, addr_t size = 1);
+	extern protected virtual function bit refuse_if_invalid(addr_t addr, addr_t size, string what);
+
+	// The lines touched so far: how many, whether one exists, and all of
+	// them in ascending order. A line is WORD_SIZE bytes at an aligned
+	// address, created on its first access.
+	extern virtual function int num_lines();
+	extern virtual function bit line_exists(addr_t addr);
+	extern virtual function void get_lines(ref addr_t lines[$]);
+
+	// Compare the lines of two memories. A line whose word differs, or that
+	// one side touched and the other did not, is one mismatch. Returns the
+	// count; reports the first max_report of them as uvm_error, tagged.
+	extern virtual function int compare(ovip_mem other, string tag = "", int max_report = 16);
+
 endclass : ovip_mem
 
 
@@ -94,6 +123,7 @@ endfunction : prepare_for_access
 
 
 function void ovip_mem::write(addr_t addr, word_t data, byte_enable_t byte_enable = -1);
+	if (refuse_if_invalid(addr, WORD_SIZE, "write")) return;
 	prepare_for_access(addr);
 	write_aligned(addr, data, byte_enable);
 endfunction : write
@@ -123,6 +153,7 @@ endfunction : write_aligned
 
 
 function ovip_mem::word_t ovip_mem::read(addr_t addr);
+	if (refuse_if_invalid(addr, WORD_SIZE, "read")) return '0;
 	prepare_for_access(addr);
 	return mem[addr];
 endfunction : read
@@ -133,6 +164,7 @@ function ovip_bytestream ovip_mem::read_bytestream(addr_t addr, int size = WORD_
 	int byte_offset = addr % WORD_SIZE;
 	int num_full_words = int'($ceil( (size + byte_offset) / real'(WORD_SIZE) ));
 	int produced = 0;
+	if (refuse_if_invalid(addr, size, "read")) return rd_data;
 	addr -= byte_offset; // word-align
 
 	for (int i = 0; i < num_full_words; i++)
@@ -153,7 +185,7 @@ endfunction : read_bytestream
 function void ovip_mem::write_bytestream(addr_t addr, ref byte data[$], ref bit byte_enable[$] = empty_bitstream);
 	int byte_offset = addr % WORD_SIZE; // Calculate byte offset within the first word
 	int size = data.size();
-	int num_full_words = (size - byte_offset + WORD_SIZE - 1) / WORD_SIZE - 1; // Calculate the number of full words
+	int num_full_words;                 // the whole words after the first, partial one: set below
 	int data_offset = 0;
 	word_t word;
 	byte_enable_t strobe;
@@ -167,6 +199,7 @@ function void ovip_mem::write_bytestream(addr_t addr, ref byte data[$], ref bit 
 	// scale even with the upfront alloc.
 	byte data_arr[] = new[size];
 	bit  be_arr[]   = new[byte_enable.size()];
+	if (refuse_if_invalid(addr, size, "write")) return;
 	foreach(data[i])        data_arr[i] = data[i];
 	foreach(byte_enable[i]) be_arr[i]   = byte_enable[i];
 
@@ -190,7 +223,12 @@ function void ovip_mem::write_bytestream(addr_t addr, ref byte data[$], ref bit 
 		data_offset = WORD_SIZE-byte_offset;
 	end
 
-	// Write the full words
+	// Write the full words: what is left after the first word, in whole words.
+	// (The old count, ceil((size - offset) / WORD_SIZE) - 1, was one short
+	// for a large offset, so the last-word branch indexed past the word, and
+	// one too many for a small one, so a zero byte was written past the
+	// stream.)
+	num_full_words = (size > data_offset) ? (size - data_offset) / WORD_SIZE : 0;
 	for (int i = 0; i < num_full_words; i++) begin
 		strobe = 0;
 
@@ -233,5 +271,108 @@ function void ovip_mem::print();
 		$display("Address: %0d, Data: %h", addr, mem[addr]);
 	end
 endfunction : print
+
+
+function void ovip_mem::add_valid_range(addr_t base, addr_t size);
+	range_t r;
+	if (size == 0)
+	begin
+		`uvm_error("MEM/BAD_RANGE", $sformatf("%s: a valid range of size 0 at 0x%0h", get_name(), base))
+		return;
+	end
+	r.base = base; r.size = size;
+	foreach (valid_ranges[i])
+		if (valid_ranges[i].base > base)
+		begin
+			valid_ranges.insert(i, r);
+			return;
+		end
+	valid_ranges.push_back(r);
+endfunction : add_valid_range
+
+
+function int ovip_mem::num_valid_ranges();
+	return valid_ranges.size();
+endfunction : num_valid_ranges
+
+
+function bit ovip_mem::is_valid(addr_t addr, addr_t size = 1);
+	addr_t pos = addr;
+	if (valid_ranges.size() == 0) return 1;
+	while (pos < addr + size)
+	begin
+		// the farthest end among the ranges holding `pos`; ranges may touch or overlap
+		addr_t best = 0;
+		bit found = 0;
+		foreach (valid_ranges[i])
+			if (pos >= valid_ranges[i].base && pos - valid_ranges[i].base < valid_ranges[i].size)
+			begin
+				addr_t e = valid_ranges[i].base + valid_ranges[i].size;
+				if (!found || e > best) best = e;
+				found = 1;
+			end
+		if (!found) return 0;
+		pos = best;
+	end
+	return 1;
+endfunction : is_valid
+
+
+function bit ovip_mem::refuse_if_invalid(addr_t addr, addr_t size, string what);
+	if (is_valid(addr, size)) return 0;
+	`uvm_error("MEM/OUT_OF_RANGE", $sformatf("%s: %s of %0d byte(s) at 0x%0h touches an address outside the %0d valid range(s); nothing done",
+		get_name(), what, size, addr, valid_ranges.size()))
+	return 1;
+endfunction : refuse_if_invalid
+
+
+function int ovip_mem::num_lines();
+	return mem.num();
+endfunction : num_lines
+
+
+function bit ovip_mem::line_exists(addr_t addr);
+	return mem.exists(align_address_to_word_size(addr));
+endfunction : line_exists
+
+
+function void ovip_mem::get_lines(ref addr_t lines[$]);
+	addr_t a;
+	lines.delete();
+	if (mem.first(a))
+		do lines.push_back(a); while (mem.next(a));
+endfunction : get_lines
+
+
+function int ovip_mem::compare(ovip_mem other, string tag = "", int max_report = 16);
+	int mismatches = 0;
+	addr_t a;
+	string who = (tag == "") ? get_name() : tag;
+	if (mem.first(a))
+		do begin
+			if (!other.mem.exists(a))
+			begin
+				mismatches++;
+				if (mismatches <= max_report)
+					`uvm_error("MEM/COMPARE", $sformatf("%s: line 0x%0h is %h here and was never touched there", who, a, mem[a]))
+			end
+			else if (other.mem[a] !== mem[a])
+			begin
+				mismatches++;
+				if (mismatches <= max_report)
+					`uvm_error("MEM/COMPARE", $sformatf("%s: line 0x%0h is %h here and %h there", who, a, mem[a], other.mem[a]))
+			end
+		end while (mem.next(a));
+	if (other.mem.first(a))
+		do begin
+			if (!mem.exists(a))
+			begin
+				mismatches++;
+				if (mismatches <= max_report)
+					`uvm_error("MEM/COMPARE", $sformatf("%s: line 0x%0h is %h there and was never touched here", who, a, other.mem[a]))
+			end
+		end while (other.mem.next(a));
+	return mismatches;
+endfunction : compare
 
 `endif

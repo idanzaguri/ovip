@@ -9,7 +9,9 @@ class ovip_axi_trans extends uvm_sequence_item;
 	rand ovip_axi_addr_t addr;                      // Address of the AXI transaction
 	rand ovip_axi_id_t id;                          // ID of the AXI transaction
 	rand ovip_axi_transaction_type_t tr_type;       // Type of AXI transaction (e.g., read, write)
-	rand ovip_axi_resp_t resp;                      // Response of the AXI transaction (e.g., OKAY, ERROR)
+	rand ovip_axi_resp_t resp;                      // Response of the AXI transaction. On a read: the worst of resp_beats (DECERR over SLVERR over EXOKAY over OKAY)
+	ovip_axi_resp_t resp_beats[$];                  // Read only: RRESP of every beat, in beat order. The master driver and the monitor fill it;
+	                                                // a slave sequence may fill it to answer beats differently (empty = `resp` on every beat)
 	rand ovip_axi_data_t data_beats[$];             // Data beats of the AXI transaction
 	rand ovip_axi_strb_t strb_beats[$];             // Strobe beats of the AXI transaction
 	rand bit [7:0] len;                             // Length of the AXI transaction
@@ -166,7 +168,35 @@ class ovip_axi_trans extends uvm_sequence_item;
 		is_narrow_transfer = 0;
 		data_phase_started = 0;
 		monitor_error = 0;
+		resp_beats.delete();
 	endfunction : init_state_variables
+
+	// The worse of two responses: DECERR over SLVERR over EXOKAY over OKAY
+	// (the enum's encoding orders them that way).
+	static function ovip_axi_resp_t worst_resp(ovip_axi_resp_t a, ovip_axi_resp_t b);
+		return (b > a) ? b : a;
+	endfunction : worst_resp
+
+	// Record beat `index`'s RRESP and fold it into `resp`. The driver and the
+	// monitor call it per R beat, so after the last beat `resp` is the worst
+	// response of the burst.
+	function void set_resp_beat(int index, ovip_axi_resp_t r);
+		while(resp_beats.size() <= index) resp_beats.push_back(OVIP_AXI_RESP_OKAY);
+		resp_beats[index] = r;
+		resp = (index == 0) ? r : worst_resp(resp, r);
+	endfunction : set_resp_beat
+
+	// The RRESP to drive on beat `index`: its own entry when the sequence
+	// gave one, else `resp` (the slave driver's rule).
+	function ovip_axi_resp_t resp_of_beat(int index);
+		return (resp_beats.size() > index) ? resp_beats[index] : resp;
+	endfunction : resp_of_beat
+
+	// 1 when every beat carries the same response (or no per-beat list exists).
+	function bit resp_is_uniform();
+		foreach(resp_beats[ii]) if(resp_beats[ii] != resp_beats[0]) return 0;
+		return 1;
+	endfunction : resp_is_uniform
 
 	virtual function void do_copy(uvm_object rhs);
 		ovip_axi_trans tr;
@@ -177,6 +207,7 @@ class ovip_axi_trans extends uvm_sequence_item;
 
 		tr_type = tr.tr_type;
 		resp = tr.resp;
+		resp_beats = tr.resp_beats;
 
 		data_beats = tr.data_beats;
 		strb_beats = tr.strb_beats;
@@ -246,6 +277,7 @@ class ovip_axi_trans extends uvm_sequence_item;
 			&& id         == tr.id
 			&& tr_type    == tr.tr_type
 			&& resp       == tr.resp
+			&& (resp_beats.size() == 0 || tr.resp_beats.size() == 0 || resp_beats == tr.resp_beats)
 			&& data_beats == tr.data_beats
 			&& strb_beats == tr.strb_beats
 			&& len        == tr.len
@@ -276,6 +308,8 @@ class ovip_axi_trans extends uvm_sequence_item;
 		if(id         != rhs.id        ) s = {s, $sformatf("  id:         expected=0x%0h    actual=0x%0h\n",   id,              rhs.id)};
 		if(tr_type    != rhs.tr_type   ) s = {s, $sformatf("  tr_type:    expected=%s       actual=%s\n",      tr_type.name(),  rhs.tr_type.name())};
 		if(resp       != rhs.resp      ) s = {s, $sformatf("  resp:       expected=%s       actual=%s\n",      resp.name(),     rhs.resp.name())};
+		if(resp_beats.size() && rhs.resp_beats.size() && resp_beats != rhs.resp_beats)
+		                                 s = {s, $sformatf("  resp_beats: expected=%p       actual=%p\n",      resp_beats,      rhs.resp_beats)};
 		if(len        != rhs.len       ) s = {s, $sformatf("  len:        expected=%0d      actual=%0d\n",     len,             rhs.len)};
 		if(size       != rhs.size      ) s = {s, $sformatf("  size:       expected=%s       actual=%s\n",      size.name(),     rhs.size.name())};
 		if(burst      != rhs.burst     ) s = {s, $sformatf("  burst:      expected=%s       actual=%s\n",      burst.name(),    rhs.burst.name())};
@@ -321,6 +355,19 @@ class ovip_axi_trans extends uvm_sequence_item;
 			OVIP_AXI_RESP_SLVERR: resp_s = "SLVERR";
 			default             : resp_s = "DECERR";
 		endcase
+		// a read whose beats answered differently: the worst in the column,
+		// the per-beat list after the fixed columns
+		if(!resp_is_uniform())
+		begin
+			string beats = "";
+			foreach(resp_beats[ii]) beats = {beats, (ii ? "," : ""), resp_beats[ii].name().substr(14, resp_beats[ii].name().len()-1)};
+			resp_s = {resp_s, "*"};
+			return $sformatf("%-3s %-6s %-12s %-6d %-5s %-6s %-7s %-11s %-11s %-11s %-11s beats=%s",
+				dir_s, $sformatf("0x%0x", id), $sformatf("0x%08x", addr), len + 1,
+				$sformatf("%0dB", 1 << size), burst_s, resp_s,
+				$sformatf("%0t", addr_phase_time), $sformatf("%0t", data_phase_begin_time),
+				$sformatf("%0t", data_phase_time), $sformatf("%0t", resp_phase_time), beats);
+		end
 		return $sformatf("%-3s %-6s %-12s %-6d %-5s %-6s %-7s %-11s %-11s %-11s %-11s",
 			dir_s,
 			$sformatf("0x%0x", id),

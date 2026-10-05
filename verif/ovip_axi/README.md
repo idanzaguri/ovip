@@ -123,6 +123,8 @@ The delay between the address phase and the first data beat can be controlled wi
 2. **DATA_START_EV_ADDR_SAMPLED**:
    Similar to `DATA_START_EV_ADDR_DRIVEN`, but in this case, `data_delay[0]` is counted from address phase sampling (`awvalid & awready`).
 
+   So WVALID waits for AWREADY. AXI forbids that of a master: "the master must not wait for the slave to assert AWREADY or WREADY before asserting AWVALID or WVALID". It lets a slave wait for WVALID before it asserts AWREADY. Against such a slave the master and the slave wait for each other, and the simulation hangs with no message. Use this event only against a slave that asserts AWREADY without WVALID. A NoC master NI that puts the header and the first data beat in one flit waits for WVALID (logion_tb TB-3).
+
 ![data_start_ev_addr_sampled](wavedrom/data_start_ev_addr_sampled.svg)
 
 3. **DATA_START_EV_BEFORE_ADDR**:
@@ -155,6 +157,30 @@ The wire picture is identical -- only who shifts the data differs.
 ### Burst-type coverage
 
 INCR, FIXED, and WRAP are all supported under auto-alignment, including the corners -- narrow transfers, unaligned start addresses, FIXED with `burst_size == bus_width` at an aligned and an unaligned address (covered by `ovip_axi_fixed_full_width_alignment_test`), and WRAP at all spec-legal lengths (covered by `ovip_axi_wrap_burst_test`). On a full-width transfer with an aligned address the lane offset is zero, so the master driver and slave/monitor sample the data unshifted -- exactly what the user wrote in `data_beats[i]`. The monitor enforces WRAP's spec rules (length ∈ {2,4,8,16} and start address aligned to `burst_size`).
+
+### Bytes under a low strobe
+
+AXI leaves a WDATA byte whose WSTRB bit is low undefined. By default the master drives zero there: on the lanes outside a narrow or unaligned beat's window, and on the bytes a strobe hole leaves. The wire pictures above are for that default.
+
+`cfg.randomize_unstrobed_wdata = 1` (master only, default `0`) puts a random value on every such byte instead. A slave or interconnect that uses those bytes then shows it, for example a write packer that ORs whole WDATA words into one flit (logion_formal FV-1). `ovip_axi_unstrobed_wdata_test` checks the switch: the memory takes the strobed bytes alone, and non-zero bytes appear under low strobes.
+
+### Lanes a read beat does not use
+
+AXI leaves an RDATA byte lane that a narrow or unaligned beat does not use undefined. By default the slave drives zero there. A beat uses its size-aligned container, from its first byte to the container's end.
+
+`cfg.randomize_unused_rdata = 1` (slave only, default `0`) puts a random value on every other lane instead. A master or interconnect that uses those lanes then shows it, for example a read packer that ORs whole RDATA words (logion_formal FV-6). An AXI-Lite read uses the whole bus, so the switch does nothing there. `ovip_axi_unused_rdata_test` and its `_no_auto_align` variant check it: the master gets the memory's bytes, and non-zero bytes appear outside each beat's bytes.
+
+### Payload while VALID is low
+
+AXI leaves a channel's payload undefined while its VALID is low. By default the driver drives zero there at reset and after every handshake (`drive_reset_values_when_idle`), or holds the last value.
+
+`cfg.randomize_idle_payload = 1` (master and slave, default `0`) puts random values there instead: on AW, W and AR at a master, and on B and R at a slave. It works with or without `drive_reset_values_when_idle`. An interface that takes a field before its handshake then shows it, for example a NoC interface that takes BRESP while BVALID is low (logion_formal FV-5). `ovip_axi_idle_payload_test` checks it: the data still round-trips, and each of the five channels shows a non-zero payload while its VALID is low.
+
+### A slave that waits for WVALID
+
+AXI lets a slave wait for WVALID before it asserts AWREADY, and forbids a master to wait for AWREADY before it asserts WVALID. By default OVIP's slave drives AWREADY from its ready pattern alone, so it never waits for WVALID.
+
+`cfg.awready_waits_for_wvalid = 1` (slave only, default `0`, read at the start of the run) makes AWREADY follow the pattern only while a write burst has offered WVALID ahead of its AW. That counts WVALID high now, or W beats the slave already took before the AW. A master that waits for AWREADY before WVALID then hangs, for example a NoC slave NI that holds the write header until the AW handshake (logion_formal FV-3), or this VIP's own `DATA_START_EV_ADDR_SAMPLED`. `ovip_axi_awready_waits_for_wvalid_test` checks it: the data round-trips, the slave never takes an AW before its burst offered WVALID, and some AW waits for its W.
 
 ## Ready Patterns
 
@@ -350,6 +376,58 @@ The base class sets `set_response_queue_depth(-1)` for you so the driver isn't t
 
 If you'd rather write the loop by hand (you want fine-grained sequencer arbitration, layered sequences, etc.), `seqlib/ovip_axi_simple_wr_bursts_seq.sv` and `seqlib/ovip_axi_simple_rd_bursts_seq.sv` are the canonical templates. They build the `tr_pool` manually, call `start_item`/`finish_item` per item, and then loop over `get_response(...)` at the end.
 
+#### What comes back on a read
+
+The item the driver puts back carries every R beat: `data_beats[i]` is beat
+i's data (lane-0 aligned under `auto_byte_lanes_alignment`), `resp_beats[i]`
+is beat i's RRESP, and `resp` is the worst of them (DECERR over SLVERR over
+EXOKAY over OKAY). So a burst whose middle beat answered SLVERR has
+`resp == OVIP_AXI_RESP_SLVERR` and the beat named in `resp_beats`. A write
+has `resp` only, the BRESP. The monitor's items carry the same fields.
+
+### Byte streams: `ovip_axi_bytestream_sequence`
+
+For data rather than bursts: a `ovip_bytestream` (bytes) lands at `addr`, or
+`read_size` bytes come back from it in `data`. The sequence cuts the stream
+into bursts of `size` bytes per beat (default: the bus width) and at most
+`max_len`+1 beats (default: what the port allows) and sends them back to back
+under one `id`, so the driver pipelines them and the responses stay in order.
+
+| `burst` | the stream is | rule |
+|---|---|---|
+| `OVIP_AXI_BURST_INCR` (default) | the bytes from `addr` upward | an unaligned `addr` uses partial lanes on the first beat; no burst crosses 4 KiB |
+| `OVIP_AXI_BURST_FIXED` | a packet into, or out of, one data register at `addr` | beat k carries bytes k·size.. of the packet (fewer when `addr` is unaligned); at most 16 beats per burst |
+
+On a write `strb` holds one bit per byte (all on by default); a byte with its
+strobe off is not written. On an AXI4-Lite port every burst is one beat of the
+bus width whatever `size` and `max_len` say. WRAP is refused.
+
+```systemverilog
+ovip_axi_bytestream_sequence wr = ovip_axi_bytestream_sequence::type_id::create("wr");
+wr.addr = 'h1003; wr.max_len = 7;               // bursts of up to 8 beats of the bus width
+repeat(500) wr.data.push_back($urandom);
+wr.start(master_agent.sqr);
+if(!wr.all_okay()) `uvm_error("WR", wr.worst_resp().name())
+
+ovip_axi_bytestream_sequence rd = ovip_axi_bytestream_sequence::type_id::create("rd");
+rd.tr_type = OVIP_AXI_READ_TRANS; rd.addr = 'h1003; rd.read_size = 500;
+rd.start(master_agent.sqr);
+// rd.data holds the bytes; rd.trans[i].resp_beats the RRESP of every beat of burst i
+```
+
+Timing is per sequence and applies to every burst: `max_data_delay` (gaps
+between W beats), `max_addr_delay` (the gap before the next address),
+`data_start_event` with `max_addr_phase_delay` (where a write's data
+starts against its address, see Basic Timings), and `rready_pattern` and
+`bready_pattern` (the master's R and B stalls, when their `cycles` is not
+empty). The default is back to back with every ready high.
+
+After `start` returns, `trans[$]` holds the bursts in order as the driver put
+them back: `resp` (BRESP, or the worst RRESP of the burst), `resp_beats` on a
+read, `len` and `addr` as sent. `ovip_axi_bytestream_test` is the proof, on a
+random bus width and alignment mode per seed, and
+`ovip_axi_bytestream_lite_test` on AXI4-Lite.
+
 ### Slave sequences (zero-time response rule)
 
 The slave driver pulls one item at a time from the slave sequence via the **response/request port** and immediately uses it to drive the bus:
@@ -377,7 +455,9 @@ The reason the rule exists: an immediate response (BRESP on the cycle after WLAS
 |---|---|
 | Variable BRESP latency after WLAST | `req.bresp_delay = N;` |
 | Per-beat read-data spacing | `req.data_delay.push_back(N);` (one per beat) |
-| Inject SLVERR / DECERR | `req.resp = OVIP_AXI_RESP_SLVERR;` |
+| Inject SLVERR / DECERR | `req.resp = OVIP_AXI_RESP_SLVERR;` (every beat of a read) |
+| Inject an error on some beats of a read | `req.resp_beats = '{OVIP_AXI_RESP_OKAY, OVIP_AXI_RESP_SLVERR, OVIP_AXI_RESP_OKAY, OVIP_AXI_RESP_OKAY}; req.resp = OVIP_AXI_RESP_SLVERR;` (one entry per beat; `resp` the worst of them) |
+| Refuse what the slave does not own | `mem.add_valid_range(base, size)` on the backing memory: a request that touches a byte outside the ranges is answered SLVERR, a read returns zeros, the memory is untouched, and `SLAVE_SEQ/OUT_OF_RANGE` is reported unless `report_out_of_range` is cleared. With no range set every address is in range |
 | Pad write response with `buser` | `req.buser = ...;` |
 | Pad read response with `ruser` | `req.ruser = ...;` (driver carries it on each beat) |
 

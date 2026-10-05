@@ -7,6 +7,7 @@ package ovip_mem_pkg;
 
 	import ovip_global_pkg::*;
 	`include "ovip_mem.sv"
+	`include "ovip_mem_space.sv"
 endpackage : ovip_mem_pkg
 
 `endif

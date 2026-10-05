@@ -9,6 +9,18 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.1.2] -- 2026-10-05
+
+### Fixed -- VIP
+
+- The monitor's checks and samples look at the configured width of each
+  signal only (`tdata_width`, `tid_width`, `tdest_width`,
+  `tuser_bits_per_byte`), through masks like ovip_axi's. It used the whole
+  MAX-width wire, so a receiver whose DUT port drives only the low bits
+  reported X on TDATA, TKEEP and TID and a TID change inside every packet
+  (seen on the logion_tb stream test, axis_cnt's `disp`). A width of 0 on
+  TID or TDEST keeps the whole wire, as before.
+
 ## [0.1.1] -- 2026-09-02
 
 ### Fixed -- VIP

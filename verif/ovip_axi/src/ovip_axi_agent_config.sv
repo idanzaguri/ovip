@@ -60,6 +60,33 @@ class ovip_axi_agent_config extends uvm_object;
 
 	bit auto_byte_lanes_alignment = 1;
 
+	// Master only. AXI leaves a WDATA byte whose WSTRB bit is low undefined.
+	// When set, the driver puts a random value on every such byte, inside or
+	// outside the beat's byte window, instead of zero. A slave or interconnect
+	// that uses those bytes then shows it. Off by default.
+	bit randomize_unstrobed_wdata = 0;
+
+	// Slave only. AXI leaves an RDATA byte lane that a narrow or unaligned beat
+	// does not use undefined. When set, the driver puts a random value on every
+	// such lane instead of zero. A master or interconnect that uses those lanes
+	// then shows it. AXI-Lite reads use the whole bus, so it does nothing there.
+	// Off by default.
+	bit randomize_unused_rdata = 0;
+
+	// Master and slave. AXI leaves a channel's payload undefined while its VALID
+	// is low. When set, the driver puts random values on it (AW, W and AR at a
+	// master; B and R at a slave) at reset and after every handshake, instead
+	// of zero or the last value. An interface that takes a field before its
+	// handshake then shows it. Off by default.
+	bit randomize_idle_payload = 0;
+
+	// Slave only. AXI lets a slave wait for WVALID before it asserts AWREADY.
+	// When set, AWREADY follows its ready pattern only while a write burst has
+	// offered WVALID ahead of its AW: WVALID high now, or W beats the slave
+	// took before the AW. A master that waits for AWREADY before WVALID, which
+	// AXI forbids, then hangs. Read at the start of the run. Off by default.
+	bit awready_waits_for_wvalid = 0;
+
 	// When set, suppress the "delayed slave sequence" warning. Enable this if the
 	// slave sequence intentionally consumes simulation time before responding.
 	bit suppress_delayed_slave_seq_warning = 0;

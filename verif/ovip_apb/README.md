@@ -102,7 +102,7 @@ slave_seq.set_wait_states(0, 4);           // optional; defaults come from cfg
 fork slave_seq.start(comp_agent.slave_sqr); join_none
 ```
 
-Override `get_slverr(req)` / `get_num_wait_states(req)` /
+A memory with valid ranges (`mem.add_valid_range`) makes the completer answer PSLVERR outside them, memory untouched, reported as `SLAVE_SEQ/OUT_OF_RANGE` unless `report_out_of_range` is cleared. Override `get_slverr(req)` / `get_num_wait_states(req)` /
 `populate_data_from_mem(req)` / `write_transaction_to_mem(req)` for error
 injection, directed wait states, or a register-model completer.
 

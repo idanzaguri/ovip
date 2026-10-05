@@ -56,7 +56,7 @@ The minimal runnable example is [`examples/ovip_axi_stream/01_loopback/`](../../
 
 ## Signal model
 
-The interface (`ovip_axi_stream_agent_if`) carries the full superset of AXI4-Stream + AXI5-Stream signals at the MAX widths above. Each agent's runtime config selects which signals are *live* -- the per-signal `*_en` flags drive the monitor's checks and the transmitter's drive logic. Unused signals stay at zero on the wire and aren't checked.
+The interface (`ovip_axi_stream_agent_if`) carries the full superset of AXI4-Stream + AXI5-Stream signals at the MAX widths above. Each agent's runtime config selects which signals are *live* -- the per-signal `*_en` flags drive the monitor's checks and the transmitter's drive logic. Unused signals stay at zero on the wire and aren't checked. Within a live signal the monitor looks at the configured width only (`tdata_width`, `tid_width`, `tdest_width`, `tuser_bits_per_byte`), so a DUT port wired to the low bits of a wire may leave the upper bits undriven.
 
 Three clocking blocks:
 

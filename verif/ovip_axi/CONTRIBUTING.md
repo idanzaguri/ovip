@@ -83,5 +83,29 @@ A few open items that are well-scoped for a new contributor:
   one open FIXED corner -- `burst_size == bus_width` with
   `auto_byte_lanes_alignment = 1` -- which is documented as a known limitation
   in the README's "Byte-Lane Alignment" section.
+- **Random values where AXI leaves them undefined, and a slave that waits for
+  WVALID**: four switches, all off by default. OVIP drives zero on the lanes
+  AXI leaves undefined, and zero or the last value on a channel while its VALID
+  is low. Its slave raises AWREADY without looking at WVALID. A NoC that ORs or
+  samples those values then passes. logion_formal found four such bugs that
+  logion_tb's whole-NoC bench missed this way (idanzaguri/logion_formal #1, #3,
+  #5 and #6). The four switches:
+  1. **Master: random WDATA bytes where WSTRB is low**: done, as
+     `cfg.randomize_unstrobed_wdata` (the README's "Bytes under a low
+     strobe"). It exposes a write packer that ORs whole WDATA words into a
+     flit (logion_formal FV-1).
+  2. **Slave: random RDATA bytes on the lanes a narrow beat does not use**:
+     done, as `cfg.randomize_unused_rdata` (the README's "Lanes a read beat
+     does not use"). It exposes a read packer that ORs whole RDATA words
+     (FV-6).
+  3. **Random payload while VALID is low**: done, as
+     `cfg.randomize_idle_payload` (the README's "Payload while VALID is
+     low"). It exposes an interface that takes a field before its handshake,
+     such as BRESP while BVALID is low (FV-5).
+  4. **Slave: AWREADY only once WVALID has shown**: done, as
+     `cfg.awready_waits_for_wvalid` (the README's "A slave that waits for
+     WVALID"). It exposes a master that waits for AWREADY before WVALID:
+     FV-3's slave NIs, and OVIP's own `DATA_START_EV_ADDR_SAMPLED`. Such a
+     master hangs, so a watchdog or the transaction timeout reports it.
 See [CHANGELOG.md](CHANGELOG.md) "Known limitations" for the full list of
 gaps tracked against this release.

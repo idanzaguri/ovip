@@ -9,6 +9,17 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.2.0] -- 2026-10-05
+
+### Added -- VIP
+
+- `ovip_apb_base_slave_sequence` answers PSLVERR to a transfer outside the
+  backing memory's valid ranges (`ovip_mem::add_valid_range`), with the
+  memory untouched and a read of 0, and reports it as
+  `SLAVE_SEQ/OUT_OF_RANGE` unless `report_out_of_range` is cleared.
+  `request_in_range(req)` is the hook. With no range set on the memory
+  nothing changes. `ovip_apb_slave_out_of_range_test`.
+
 ## [0.1.1] -- 2026-09-02
 
 ### Fixed -- VIP

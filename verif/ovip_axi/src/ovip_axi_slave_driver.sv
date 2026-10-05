@@ -54,6 +54,8 @@ class ovip_axi_slave_driver #(type IF_T = virtual ovip_axi_agent_if) extends ovi
 	extern virtual task bresp_phase_driver(); // initator
 
 	extern virtual function void drive_reset_values();
+	extern virtual function ovip_axi_data_t idle_value(int bits = 64);
+	extern virtual task awready_after_wvalid_driver();
 
 	extern virtual function void drive_r_channel_reset_values();
 	extern virtual function void drive_b_channel_reset_values();
@@ -104,6 +106,16 @@ function void ovip_axi_slave_driver::reset_internal_state();
 endfunction : reset_internal_state
 
 
+// A payload field's value while its VALID is low: zero, or random over `bits`
+// bits when cfg.randomize_idle_payload asks for it. AXI leaves it undefined.
+function ovip_axi_data_t ovip_axi_slave_driver::idle_value(int bits = 64);
+	ovip_axi_data_t v = '0;
+	if(cfg.randomize_idle_payload)
+		for(int ii = 0; ii < bits && ii < $bits(v); ii += 32)
+			v[ii +: 32] = $urandom;
+	return v;
+endfunction : idle_value
+
 function void ovip_axi_slave_driver::drive_reset_values();
 	vif.slave_cb.rvalid <= 0;
 	vif.slave_cb.bvalid <= 0;
@@ -142,6 +154,11 @@ endtask : raddr_phase_driver
 
 task ovip_axi_slave_driver::waddr_phase_driver();
 	ovip_axi_ready_pattern_t ready_pattern = cfg.default_awready_pattern;
+	if(cfg.awready_waits_for_wvalid)
+	begin
+		awready_after_wvalid_driver();
+		return;
+	end
 	forever begin
 		if(ready_pattern.cycles.sum() == 0) begin
 			`uvm_warning("OVIP_AXI/READY_PATTERN", "awready pattern cycles[] sum to 0 -- falling back to '{cycles:'{0,1}, loop:0} (always-ready)")
@@ -162,6 +179,50 @@ task ovip_axi_slave_driver::waddr_phase_driver();
 	end
 endtask : waddr_phase_driver
 
+
+// cfg.awready_waits_for_wvalid: AWREADY follows the ready pattern, but only
+// while some write burst has offered WVALID ahead of its AW. The slave still
+// takes W whenever WREADY allows, so a burst whose W it took before the AW
+// counts as well. One loop per cycle: it counts, then drives.
+task ovip_axi_slave_driver::awready_after_wvalid_driver();
+	ovip_axi_ready_pattern_t ready_pattern = cfg.default_awready_pattern;
+	ovip_axi_ready_pattern_t next_pattern;
+	int  w_ahead  = 0;   // W bursts that offered WVALID and whose AW the slave has not taken
+	bit  in_burst = 0;   // a W burst has started and its last beat is not taken yet
+	bit  lite     = (cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE);
+	int  ii       = 0;   // the pattern's current entry: even entries low, odd ones high
+	int  left;           // cycles left in it
+	bit  held     = 0;   // a pattern that does not loop has ended: its last entry holds
+	if(ready_pattern.cycles.sum() == 0) ready_pattern = '{cycles:'{0,1}, loop:0};
+	left = ready_pattern.cycles[0];
+	vif.slave_cb.awready <= 0;
+	forever
+	begin
+		@(vif.monitor_cb);
+		// what this edge saw
+		if(vif.monitor_cb.wvalid && !in_burst) begin w_ahead++; in_burst = 1; end
+		if(vif.monitor_cb.wvalid && vif.monitor_cb.wready && (lite || vif.monitor_cb.wlast)) in_burst = 0;
+		if(vif.monitor_cb.awvalid && vif.monitor_cb.awready) w_ahead--;
+		// a new pattern replaces the current one
+		if(awready_pattern_mb.try_get(next_pattern) && next_pattern.cycles.sum() != 0)
+		begin
+			ready_pattern = next_pattern;
+			ii = 0;
+			left = ready_pattern.cycles[0];
+			held = 0;
+		end
+		// step the pattern by one cycle
+		while(!held && left == 0)
+		begin
+			if(ii + 1 < ready_pattern.cycles.size()) ii++;
+			else if(ready_pattern.loop) ii = 0;
+			else begin held = 1; break; end
+			left = ready_pattern.cycles[ii];
+		end
+		if(!held) left--;
+		vif.slave_cb.awready <= bit'(ii) && (w_ahead > 0);
+	end
+endtask : awready_after_wvalid_driver
 
 task ovip_axi_slave_driver::wdata_phase_driver();
 	ovip_axi_ready_pattern_t ready_pattern = cfg.default_wready_pattern;
@@ -186,9 +247,9 @@ task ovip_axi_slave_driver::wdata_phase_driver();
 endtask : wdata_phase_driver
 
 function void ovip_axi_slave_driver::drive_b_channel_reset_values();
-	if(cfg.wr_id_width) vif.slave_cb.bid   <= 0;
-	if(cfg.buser_width) vif.slave_cb.buser <= 0;
-	vif.slave_cb.bresp <= 0;
+	if(cfg.wr_id_width) vif.slave_cb.bid   <= idle_value();
+	if(cfg.buser_width) vif.slave_cb.buser <= idle_value();
+	vif.slave_cb.bresp <= idle_value();
 endfunction : drive_b_channel_reset_values
 
 
@@ -202,7 +263,7 @@ endfunction : drive_wr_resp
 task ovip_axi_slave_driver::bresp_phase_driver();
 	ovip_axi_trans tr;
 
-	if(cfg.drive_reset_values_when_idle)
+	if(cfg.drive_reset_values_when_idle || cfg.randomize_idle_payload)
 	drive_b_channel_reset_values();
 
 	forever
@@ -217,7 +278,7 @@ task ovip_axi_slave_driver::bresp_phase_driver();
 
 		tr.transaction_finished = 1;
 
-		if(cfg.drive_reset_values_when_idle)
+		if(cfg.drive_reset_values_when_idle || cfg.randomize_idle_payload)
 			drive_b_channel_reset_values();
 
 	end
@@ -226,39 +287,51 @@ endtask : bresp_phase_driver
 
 
 function void ovip_axi_slave_driver::drive_r_channel_reset_values();
-	if(cfg.rd_id_width) vif.slave_cb.rid    <= 0;
-	if(cfg.ruser_width) vif.slave_cb.ruser  <= 0;
-	vif.slave_cb.rdata <= 0;
-	vif.slave_cb.rresp <= 0;
+	if(cfg.rd_id_width) vif.slave_cb.rid    <= idle_value();
+	if(cfg.ruser_width) vif.slave_cb.ruser  <= idle_value();
+	vif.slave_cb.rdata <= idle_value(int'(cfg.bus_width) * 8);
+	vif.slave_cb.rresp <= idle_value();
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
-	vif.slave_cb.rlast <= 0;
+	vif.slave_cb.rlast <= idle_value();
 endfunction : drive_r_channel_reset_values
 
 
 function void ovip_axi_slave_driver::drive_rd_channel(ovip_axi_trans tr);
+	ovip_axi_data_t rdata;
 	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
-		vif.slave_cb.rdata <= tr.data_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index]*8;
+		rdata = tr.data_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	else
-		vif.slave_cb.rdata <= tr.data_beats[tr.burst_index];
+		rdata = tr.data_beats[tr.burst_index];
+
+	// A lane the beat does not use is undefined in AXI: random instead of zero
+	// when asked. A beat uses its container from its first byte to its end.
+	if(cfg.randomize_unused_rdata && cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE)
+	begin
+		int s = 1 << tr.size;
+		int lo, hi;
+		if(tr.transfer_starting_byte_lane.size() != tr.len + 1)
+		begin
+			tr.bus_width = cfg.bus_width;
+			tr.calculate_transfer_starting_byte_lane();
+		end
+		lo = tr.transfer_starting_byte_lane[tr.burst_index];
+		hi = (lo & ~(s - 1)) + s;
+		for(int ii = 0; ii < int'(cfg.bus_width); ii++)
+			if(ii < lo || ii >= hi) rdata[ii*8 +: 8] = $urandom;
+	end
+	vif.slave_cb.rdata <= rdata;
 
 	if(cfg.rd_id_width) vif.slave_cb.rid   <= tr.id;
 	if(cfg.ruser_width) vif.slave_cb.ruser <= tr.ruser;
 
-	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
-	begin
-		vif.slave_cb.rresp <= tr.resp;
-		return;
-	end
+	// RRESP rides every beat: the beat's own entry when the sequence filled
+	// resp_beats, else `resp` on all of them
+	vif.slave_cb.rresp <= tr.resp_of_beat(tr.burst_index);
 
-	if(tr.burst_index == tr.len)
-	begin
-		vif.slave_cb.rlast <= 1;
-		vif.slave_cb.rresp <= tr.resp;
-	end
-	else
-	begin
-		vif.slave_cb.rlast <= 0;
-	end
+	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
+		return;
+
+	vif.slave_cb.rlast <= (tr.burst_index == tr.len);
 endfunction : drive_rd_channel
 
 
@@ -266,7 +339,7 @@ task ovip_axi_slave_driver::rdata_phase_driver();
 	ovip_axi_trans tr;
 
 	vif.slave_cb.rvalid <= 0;
-	if(cfg.drive_reset_values_when_idle)
+	if(cfg.drive_reset_values_when_idle || cfg.randomize_idle_payload)
 		drive_r_channel_reset_values();
 
 	forever
@@ -281,7 +354,7 @@ task ovip_axi_slave_driver::rdata_phase_driver();
 
 		tr.transaction_finished = (tr.burst_index == tr.len);
 
-		if(cfg.drive_reset_values_when_idle)
+		if(cfg.drive_reset_values_when_idle || cfg.randomize_idle_payload)
 			drive_r_channel_reset_values();
 
 		if(tr.transaction_finished)

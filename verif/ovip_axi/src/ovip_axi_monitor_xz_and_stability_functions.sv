@@ -169,7 +169,8 @@ endtask : r_channel_signal_stability_check
 //                                                                                     //
 // ----------------------------------------------------------------------------------- //
 function void ovip_axi_monitor::check_xz_write_address();
-	`OVIP_AXI_MON_XZ_CHECK(awid  &WR_ID_MASK, AWID)
+	// an AXI4-Lite port has no ID: AWID is not a pin there, so it is not checked
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE) `OVIP_AXI_MON_XZ_CHECK(awid  &WR_ID_MASK, AWID)
 	`OVIP_AXI_MON_XZ_CHECK(awaddr&ADDR_MASK , AWADDR)
 	`OVIP_AXI_MON_XZ_CHECK(awuser& AWUSER_MASK, AWUSER)
 	if(cfg.awprot_en)   `OVIP_AXI_MON_XZ_CHECK(awprot  , AWPROT  )
@@ -197,13 +198,13 @@ function void ovip_axi_monitor::check_xz_write_data();
 endfunction : check_xz_write_data
 
 function void ovip_axi_monitor::check_xz_write_response();
-	`OVIP_AXI_MON_XZ_CHECK(bid&WR_ID_MASK  , BID)
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE) `OVIP_AXI_MON_XZ_CHECK(bid&WR_ID_MASK  , BID)
 	`OVIP_AXI_MON_XZ_CHECK(bresp           , BRESP)
 	`OVIP_AXI_MON_XZ_CHECK(buser&BUSER_MASK, BUSER)
 endfunction : check_xz_write_response
 
 function void ovip_axi_monitor::check_xz_read_address();
-	`OVIP_AXI_MON_XZ_CHECK(arid  &RD_ID_MASK, ARID)
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE) `OVIP_AXI_MON_XZ_CHECK(arid  &RD_ID_MASK, ARID)
 	`OVIP_AXI_MON_XZ_CHECK(araddr&ADDR_MASK , ARADDR)
 	`OVIP_AXI_MON_XZ_CHECK(aruser& ARUSER_MASK, ARUSER)
 	if(cfg.arprot_en)   `OVIP_AXI_MON_XZ_CHECK(arprot  , ARPROT  )
@@ -223,7 +224,7 @@ endfunction : check_xz_read_address
 
 
 function void ovip_axi_monitor::check_xz_read_data();
-	`OVIP_AXI_MON_XZ_CHECK(rid&RD_ID_MASK , RID)
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE) `OVIP_AXI_MON_XZ_CHECK(rid&RD_ID_MASK , RID)
 	`OVIP_AXI_MON_XZ_CHECK(rdata&DATA_MASK ,RDATA)
 	`OVIP_AXI_MON_XZ_CHECK(ruser&RUSER_MASK, RUSER)
 	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE)

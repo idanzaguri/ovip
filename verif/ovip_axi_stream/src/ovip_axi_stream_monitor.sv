@@ -35,6 +35,19 @@ class ovip_axi_stream_monitor extends uvm_monitor;
 	// Current in-progress packet, kept across handshakes until TLAST.
 	protected ovip_axi_stream_trans current_tr;
 
+	// The live bits of each payload signal, from cfg at the start of
+	// run_phase (the ovip_axi convention). The wires are MAX-width. An OVIP
+	// transmitter drives the unused upper bits to 0, but a DUT port wired to
+	// the low bits leaves them undriven (Z), so every check and every sample
+	// looks at the live bits only. A width of 0 on TID or TDEST keeps the
+	// whole wire, as before.
+	ovip_axi_stream_data_t DATA_MASK;
+	ovip_axi_stream_strb_t STRB_MASK;
+	ovip_axi_stream_keep_t KEEP_MASK;
+	ovip_axi_stream_id_t   ID_MASK;
+	ovip_axi_stream_dest_t DEST_MASK;
+	ovip_axi_stream_user_t USER_MASK;
+
 	`uvm_component_utils(ovip_axi_stream_monitor)
 
 	function new(string name = "ovip_axi_stream_monitor", uvm_component parent);
@@ -43,6 +56,7 @@ class ovip_axi_stream_monitor extends uvm_monitor;
 
 	extern virtual function void build_phase(uvm_phase phase);
 	extern virtual task          run_phase(uvm_phase phase);
+	extern virtual function void set_masks();
 
 	// Reset gates and exit-from-reset rule.
 	extern virtual task rst_monitor();
@@ -94,8 +108,19 @@ function void ovip_axi_stream_monitor::build_phase(uvm_phase phase);
 endfunction : build_phase
 
 
+function void ovip_axi_stream_monitor::set_masks();
+	DATA_MASK = (ovip_axi_stream_data_t'(1) << (cfg.tdata_width * 8)) - 1;
+	STRB_MASK = (ovip_axi_stream_strb_t'(1) << cfg.tdata_width) - 1;
+	KEEP_MASK = (ovip_axi_stream_keep_t'(1) << cfg.tdata_width) - 1;
+	ID_MASK   = (cfg.tid_width   > 0) ? (ovip_axi_stream_id_t'(1)   << cfg.tid_width)   - 1 : '1;
+	DEST_MASK = (cfg.tdest_width > 0) ? (ovip_axi_stream_dest_t'(1) << cfg.tdest_width) - 1 : '1;
+	USER_MASK = (ovip_axi_stream_user_t'(1) << (cfg.tuser_bits_per_byte * cfg.tdata_width)) - 1;
+endfunction : set_masks
+
+
 task ovip_axi_stream_monitor::run_phase(uvm_phase phase);
 	`uvm_info({MESSAGE_TAG, "AXIS_MON"}, "monitor up; waiting for reset deassertion", UVM_HIGH)
+	set_masks();
 
 	// Run the reset-tied checkers immediately so the during-reset and
 	// exit-from-reset rules are observed even before the bus comes alive.
@@ -173,31 +198,30 @@ task ovip_axi_stream_monitor::xz_payload_check();
 endtask : xz_payload_check
 
 
-// We check XOR-reduction over the *full* MAX-width signal even though only
-// the bottom (cfg.<width>*8) bits are live -- the drivers leave the unused
-// upper bits at 0 by construction (drive_beat assigns from trans fields
-// whose upper bytes are zero), so any X anywhere on the wire is a real bug.
-// SV-spec-wise variable bit-slice ranges (e.g. `[cfg.width*8-1:0]`) are not
-// portable through Questa's vopt pass, so we lean on the full-width form.
+// The XOR-reduction runs over the live bits only: the signal ANDed with its
+// mask from set_masks(). The OVIP drivers leave the unused upper bits at 0,
+// but a DUT port wired to the low bits leaves them undriven, and Z there is
+// not a fault. A mask, not a bit-slice: variable slice ranges (e.g.
+// `[cfg.width*8-1:0]`) are not portable through Questa's vopt pass.
 function void ovip_axi_stream_monitor::check_payload_xz();
 	if(cfg.tdata_width > 0)
-		if(^vif.monitor_cb.tdata === 1'bx)
+		if(^(vif.monitor_cb.tdata & DATA_MASK) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, "TDATA contains X's or Z's while TVALID is HIGH.")
 	if(cfg.tstrb_en && cfg.tdata_width > 0)
-		if(^vif.monitor_cb.tstrb === 1'bx)
+		if(^(vif.monitor_cb.tstrb & STRB_MASK) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, "TSTRB contains X's or Z's while TVALID is HIGH.")
 	if(cfg.tkeep_en && cfg.tdata_width > 0)
-		if(^vif.monitor_cb.tkeep === 1'bx)
+		if(^(vif.monitor_cb.tkeep & KEEP_MASK) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, "TKEEP contains X's or Z's while TVALID is HIGH.")
 	if(cfg.tlast_en) `OVIP_AXI_STREAM_MON_XZ_CHECK(tlast, tlast)
 	if(cfg.tid_en   && cfg.tid_width   > 0)
-		if(^vif.monitor_cb.tid === 1'bx)
+		if(^(vif.monitor_cb.tid & ID_MASK) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, "TID contains X's or Z's while TVALID is HIGH.")
 	if(cfg.tdest_en && cfg.tdest_width > 0)
-		if(^vif.monitor_cb.tdest === 1'bx)
+		if(^(vif.monitor_cb.tdest & DEST_MASK) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, "TDEST contains X's or Z's while TVALID is HIGH.")
 	if(cfg.tuser_en && cfg.tuser_bits_per_byte > 0 && cfg.tdata_width > 0)
-		if(^vif.monitor_cb.tuser === 1'bx)
+		if(^(vif.monitor_cb.tuser & USER_MASK) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, "TUSER contains X's or Z's while TVALID is HIGH.")
 	if(cfg.twakeup_en) `OVIP_AXI_STREAM_MON_XZ_CHECK(twakeup, twakeup)
 endfunction : check_payload_xz
@@ -217,13 +241,13 @@ task ovip_axi_stream_monitor::stability_check();
 	forever
 	begin
 		@(vif.monitor_cb iff vif.monitor_cb.tvalid == 1'b1 && vif.monitor_cb.tready == 1'b0);
-		snap_tdata = vif.monitor_cb.tdata;
-		snap_tstrb = vif.monitor_cb.tstrb;
-		snap_tkeep = vif.monitor_cb.tkeep;
+		snap_tdata = vif.monitor_cb.tdata & DATA_MASK;
+		snap_tstrb = vif.monitor_cb.tstrb & STRB_MASK;
+		snap_tkeep = vif.monitor_cb.tkeep & KEEP_MASK;
 		snap_tlast = vif.monitor_cb.tlast;
-		snap_tid   = vif.monitor_cb.tid;
-		snap_tdest = vif.monitor_cb.tdest;
-		snap_tuser = vif.monitor_cb.tuser;
+		snap_tid   = vif.monitor_cb.tid   & ID_MASK;
+		snap_tdest = vif.monitor_cb.tdest & DEST_MASK;
+		snap_tuser = vif.monitor_cb.tuser & USER_MASK;
 
 		// Walk forward until the handshake fires. Each intermediate cycle must
 		// re-show the same TVALID and payload values.
@@ -232,19 +256,19 @@ task ovip_axi_stream_monitor::stability_check();
 			@(vif.monitor_cb);
 			if(vif.monitor_cb.tvalid !== 1'b1)
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TVALID deasserted before TREADY -- once HIGH, TVALID must stay HIGH until handshake (spec section 2.2).")
-			if(cfg.tdata_width > 0 && snap_tdata !== vif.monitor_cb.tdata)
+			if(cfg.tdata_width > 0 && snap_tdata !== (vif.monitor_cb.tdata & DATA_MASK))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TDATA changed between TVALID assertion and handshake.")
-			if(cfg.tstrb_en && snap_tstrb !== vif.monitor_cb.tstrb)
+			if(cfg.tstrb_en && snap_tstrb !== (vif.monitor_cb.tstrb & STRB_MASK))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TSTRB changed between TVALID assertion and handshake.")
-			if(cfg.tkeep_en && snap_tkeep !== vif.monitor_cb.tkeep)
+			if(cfg.tkeep_en && snap_tkeep !== (vif.monitor_cb.tkeep & KEEP_MASK))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TKEEP changed between TVALID assertion and handshake.")
 			if(cfg.tlast_en && snap_tlast !== vif.monitor_cb.tlast)
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TLAST changed between TVALID assertion and handshake.")
-			if(cfg.tid_en   && snap_tid   !== vif.monitor_cb.tid)
+			if(cfg.tid_en   && snap_tid   !== (vif.monitor_cb.tid & ID_MASK))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TID changed between TVALID assertion and handshake.")
-			if(cfg.tdest_en && snap_tdest !== vif.monitor_cb.tdest)
+			if(cfg.tdest_en && snap_tdest !== (vif.monitor_cb.tdest & DEST_MASK))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TDEST changed between TVALID assertion and handshake.")
-			if(cfg.tuser_en && snap_tuser !== vif.monitor_cb.tuser)
+			if(cfg.tuser_en && snap_tuser !== (vif.monitor_cb.tuser & USER_MASK))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TUSER changed between TVALID assertion and handshake.")
 		end
 	end
@@ -334,10 +358,9 @@ function void ovip_axi_stream_monitor::sample_beat_into(ovip_axi_stream_trans tr
 	if(tr.burst_index == 0)
 	begin
 		// Take TID/TDEST/TWAKEUP as the packet's scope values from the first
-		// beat. The trans's id/dest fields are MAX-width typedefs, matching
-		// the wire width directly -- no slicing needed.
-		if(cfg.tid_en)     tr.id     = vif.monitor_cb.tid;
-		if(cfg.tdest_en)   tr.dest   = vif.monitor_cb.tdest;
+		// beat, on the live bits (the trans's id/dest fields are MAX-width).
+		if(cfg.tid_en)     tr.id     = vif.monitor_cb.tid   & ID_MASK;
+		if(cfg.tdest_en)   tr.dest   = vif.monitor_cb.tdest & DEST_MASK;
 		if(cfg.twakeup_en) tr.wakeup = vif.monitor_cb.twakeup;
 	end
 
@@ -366,18 +389,18 @@ endfunction : check_byte_qualifiers
 // every subsequent beat.
 function void ovip_axi_stream_monitor::check_packet_scope_stability(ovip_axi_stream_trans tr);
 	if(tr.burst_index <= 1) return; // first beat is the reference
-	if(cfg.tid_en   && tr.id   !== vif.monitor_cb.tid)
+	if(cfg.tid_en   && tr.id   !== (vif.monitor_cb.tid & ID_MASK))
 	begin
 		`uvm_error({MESSAGE_TAG, "AXIS_MON/PKT_SCOPE"},
 			$sformatf("TID changed mid-packet (was 0x%0h, now 0x%0h). Packets must keep TID stable until TLAST (spec section 2.6).",
-				tr.id, vif.monitor_cb.tid))
+				tr.id, vif.monitor_cb.tid & ID_MASK))
 		tr.monitor_error = 1;
 	end
-	if(cfg.tdest_en && tr.dest !== vif.monitor_cb.tdest)
+	if(cfg.tdest_en && tr.dest !== (vif.monitor_cb.tdest & DEST_MASK))
 	begin
 		`uvm_error({MESSAGE_TAG, "AXIS_MON/PKT_SCOPE"},
 			$sformatf("TDEST changed mid-packet (was 0x%0h, now 0x%0h). Packets must keep TDEST stable until TLAST (spec section 2.6).",
-				tr.dest, vif.monitor_cb.tdest))
+				tr.dest, vif.monitor_cb.tdest & DEST_MASK))
 		tr.monitor_error = 1;
 	end
 endfunction : check_packet_scope_stability

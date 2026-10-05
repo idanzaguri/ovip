@@ -614,8 +614,8 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 	tr.transaction_finished = tr.got_last_beat;
 	if(tr.transaction_finished) tr.completed_ev.trigger();
 
-	if(tr.got_last_beat)
-		tr.resp = ovip_axi_resp_t'(vif.monitor_cb.rresp);
+	// RRESP on every beat; resp becomes the worst of them
+	tr.set_resp_beat(tr.burst_index, ovip_axi_resp_t'(vif.monitor_cb.rresp));
 
 	if(tr.got_last_beat)
 	begin
