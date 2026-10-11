@@ -8,6 +8,13 @@ and this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- `ovip_mem_space::resolve` indexed a striped region's sub list with the
+  64-bit `chunk % n`, which Xcelium elaborates with a `BIGWIX` (memory
+  index truncation) warning. The index is now cast to `int`; the value,
+  always below the number of subs, is unchanged.
+
 ## [0.4.0] -- 2026-10-05
 
 ### Added
