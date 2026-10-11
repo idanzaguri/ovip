@@ -65,8 +65,11 @@ task ovip_axi_stream_master_driver::run_phase(uvm_phase phase);
 			`uvm_info({MESSAGE_TAG, "AXIS_DRV"}, "Reset killed an in-flight packet -- completing it to release the sequencer", UVM_LOW)
 			seq_item_port.item_done();
 			item_in_progress = 0;
-			req = null;
 		end
+		// Whatever the driver still held is from before the reset: a packet
+		// taken but not yet started, or the last one, done, in its gap. Keeping
+		// it would send it again after the release.
+		req = null;
 		if(vif.master_cb.aresetn == 1'b0)
 			@(vif.master_cb iff vif.master_cb.aresetn);
 	end
@@ -97,6 +100,7 @@ task ovip_axi_stream_master_driver::tx_driver();
 		if(req == null)
 		begin
 			seq_item_port.get_next_item(req);
+			item_in_progress = 1;   // the sequencer's item from here to item_done, so a reset releases it
 			@(vif.master_cb);
 		end
 		item_in_progress = 1;

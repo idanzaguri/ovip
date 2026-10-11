@@ -9,6 +9,21 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+### Fixed -- VIP
+
+- The monitor took a reset in the middle of a transfer as a protocol error
+  (`APB_MON/FSM`, "PSEL deasserted after the SETUP cycle" or "PSEL/PENABLE
+  deasserted while PREADY was LOW") when the requester dropped PSEL with
+  the reset, as an asynchronously reset one does. The transfer thread and
+  `rst_monitor` wake on the same edge in either order. The transfer thread
+  now ends the transfer quietly on any edge where PRESETn is low. Found by
+  logion_tb's reset test on a NoC's APB completers.
+
+### Added -- testbench
+
+- `ovip_apb_mid_test_reset_test`: a reset while a transfer waits in ACCESS,
+  PSEL dropped with it, then traffic after the release.
+
 ## [0.2.0] -- 2026-10-05
 
 ### Added -- VIP

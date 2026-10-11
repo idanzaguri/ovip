@@ -160,11 +160,19 @@ task ovip_axi_stream_monitor::tvalid_low_during_reset_check();
 	begin
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn == 1'b0);
 		// Spec section 2.8.2: TVALID must be LOW while ARESETn is asserted.
-		// We flag only TVALID == 1; X during the first few sim cycles is the
-		// usual pre-drive state, not a spec violation.
-		if(vif.monitor_cb.tvalid === 1'b1)
-			`uvm_error({MESSAGE_TAG, "AXIS_MON/RESET"}, "TVALID asserted while ARESETn is asserted (spec section 2.8.2).")
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn == 1'b1);
+		// One cycle of grace, as ovip_axi's monitor gives: a reset in the
+		// middle of a packet can still sample TVALID high on its first cycle,
+		// since a synchronous transmitter sees the reset on that same edge.
+		// From the next cycle on, every reset cycle is checked. We flag only
+		// TVALID == 1; X during the first few sim cycles is the usual
+		// pre-drive state, not a spec violation.
+		@(vif.monitor_cb);
+		while(vif.monitor_cb.aresetn == 1'b0)
+		begin
+			if(vif.monitor_cb.tvalid === 1'b1)
+				`uvm_error({MESSAGE_TAG, "AXIS_MON/RESET"}, "TVALID asserted while ARESETn is asserted (spec section 2.8.2).")
+			@(vif.monitor_cb);
+		end
 	end
 endtask : tvalid_low_during_reset_check
 
@@ -254,6 +262,10 @@ task ovip_axi_stream_monitor::stability_check();
 		while(!vif.monitor_cb.tready)
 		begin
 			@(vif.monitor_cb);
+			// A reset ends the transfer, and rst_monitor drops it. A transmitter
+			// reset asynchronously drops TVALID on the same edge, and the two
+			// threads wake on that edge in either order, so the reset comes first.
+			if(vif.monitor_cb.aresetn !== 1'b1) break;
 			if(vif.monitor_cb.tvalid !== 1'b1)
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TVALID deasserted before TREADY -- once HIGH, TVALID must stay HIGH until handshake (spec section 2.2).")
 			if(cfg.tdata_width > 0 && snap_tdata !== (vif.monitor_cb.tdata & DATA_MASK))

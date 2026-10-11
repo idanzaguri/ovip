@@ -1,4 +1,7 @@
 
+// A reset ends a transfer under VALID. A slave or master reset asynchronously
+// drops VALID with ARESETn, and these threads wake on that edge before or
+// after rst_monitor, so each checks ARESETn on every edge it waits for.
 task ovip_axi_monitor::aw_channel_signal_stability_check();
 	ovip_axi_trans sampling_array[2];
 	sampling_array[0] = new;
@@ -32,6 +35,7 @@ task ovip_axi_monitor::aw_channel_signal_stability_check();
 			if(!vif.monitor_cb.awvalid) begin `uvm_error("AXI_MON/STABILITY_CHECK", "AWVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.awready) break;
 			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
 		end
 	end
 endtask : aw_channel_signal_stability_check
@@ -59,6 +63,7 @@ task ovip_axi_monitor::w_channel_signal_stability_check();
 			if(!vif.monitor_cb.wvalid) begin `uvm_error("AXI_MON/STABILITY_CHECK", "WVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.wready) break;
 			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
 		end
 	end
 endtask : w_channel_signal_stability_check
@@ -86,6 +91,7 @@ task ovip_axi_monitor::b_channel_signal_stability_check();
 			if(!vif.monitor_cb.bvalid) begin `uvm_error("AXI_MON/STABILITY_CHECK", "BVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.bready) break;
 			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
 		end
 	end
 endtask : b_channel_signal_stability_check
@@ -126,6 +132,7 @@ task ovip_axi_monitor::ar_channel_signal_stability_check();
 			if(!vif.monitor_cb.arvalid) begin `uvm_error("AXI_MON/STABILITY_CHECK", "ARVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.arready) break;
 			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
 		end
 	end
 endtask : ar_channel_signal_stability_check
@@ -159,6 +166,7 @@ task ovip_axi_monitor::r_channel_signal_stability_check();
 			if(!vif.monitor_cb.rvalid) begin `uvm_error("AXI_MON/STABILITY_CHECK", "RVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.rready) break;
 			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
 		end
 	end
 endtask : r_channel_signal_stability_check

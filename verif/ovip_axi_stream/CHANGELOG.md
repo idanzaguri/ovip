@@ -9,6 +9,34 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+### Fixed -- VIP
+
+- The master driver sent a packet from before a reset again after the
+  release, and then called `item_done()` with no item outstanding (a
+  UVM_FATAL). It kept the item it held when the reset came: one taken from
+  the sequencer but not yet started, or the last one, done, in its gap
+  before the next. It now marks an item in progress as soon as it takes it,
+  so the reset releases it, and drops whatever it held at every reset.
+  Found by logion_tb's reset test on a NoC's stream transmitter.
+- The monitor's stability check took a reset under a waiting beat as
+  "TVALID deasserted before TREADY", when the transmitter dropped TVALID
+  with the reset, as an asynchronously reset one does. The check thread and
+  `rst_monitor` wake on that edge in either order; the check now ends the
+  transfer on an edge where ARESETn is low.
+- The monitor's reset check flagged TVALID on the first cycle of a reset in
+  the middle of a packet (`AXIS_MON/RESET`). A synchronous transmitter sees
+  the reset on that same edge, so TVALID cannot be low yet. The check now
+  gives the first reset cycle grace, as `ovip_axi`'s monitor does, and
+  checks every reset cycle after it, not only the first.
+
+### Added -- testbench
+
+- `ovip_axi_stream_mid_test_reset_test`: a reset in the middle of a packet,
+  then packets after the release, each matched by the scoreboard.
+- `ovip_axi_stream_mid_test_reset_gap_test`: a reset in the gap after a
+  packet, and one under a waiting beat with TVALID dropped with it; after
+  each release, nothing from before the reset may arrive.
+
 ## [0.1.2] -- 2026-10-05
 
 ### Fixed -- VIP

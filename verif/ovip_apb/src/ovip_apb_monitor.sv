@@ -190,6 +190,10 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 
 	// SETUP lasts exactly one cycle: the next cycle must be ACCESS.
 	@(vif.monitor_cb);
+	// A reset ends the transfer, and rst_monitor drops it. A requester reset
+	// asynchronously drops PSEL on the same edge, and the two threads wake
+	// on that edge in either order, so the reset is checked here first.
+	if(vif.monitor_cb.presetn !== 1'b1) return;
 	if(vif.monitor_cb.psel !== 1'b1)
 	begin
 		`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PSEL deasserted after the SETUP cycle -- a started transfer must proceed to ACCESS and complete (spec section 4.1).")
@@ -213,6 +217,7 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 
 		tr.num_wait_states++;
 		@(vif.monitor_cb);
+		if(vif.monitor_cb.presetn !== 1'b1) return;   // a reset ends the transfer (see above)
 		if(vif.monitor_cb.psel !== 1'b1 || vif.monitor_cb.penable !== 1'b1)
 		begin
 			`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PSEL/PENABLE deasserted while PREADY was LOW -- the ACCESS state must be held until the completer asserts PREADY (spec section 4.1).")
