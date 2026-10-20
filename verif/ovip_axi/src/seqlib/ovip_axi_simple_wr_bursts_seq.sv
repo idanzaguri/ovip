@@ -18,6 +18,7 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 	ovip_axi_addr_t addr[$];
 	int len[$];
 	ovip_axi_size_t size[$];
+	int qos[$];                  // AxQOS per burst; a burst past the list keeps the transaction's own
 
 	ovip_axi_trans tr_pool[];
 
@@ -68,6 +69,7 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 				tr.addr  = addr[ii];
 				tr.len   = len[ii];
 				tr.size  = size[ii];
+				if (qos.size() > ii) tr.axqos = 4'(qos[ii]);
 
 				tr.awuser = ii & ((ovip_axi_user_t'(1)<<p_sequencer.cfg.awuser_width)-1);
 				tr.burst = burst;
