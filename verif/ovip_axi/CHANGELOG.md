@@ -9,6 +9,13 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+### Added -- VIP
+
+- `ovip_axi_simple_wr_bursts_seq.qos[$]`: the AxQOS of each burst, in the
+  same order as `addr`, `len` and `size`. Burst `ii` takes `qos[ii]`, so one
+  sequence can drive a master in several service classes. A burst past the
+  end of the list keeps AxQOS 0, as before; an empty list changes nothing.
+
 ### Fixed -- VIP
 
 - A WRAP burst's per-beat byte lanes went negative on an address with bit
