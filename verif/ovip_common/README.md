@@ -9,6 +9,7 @@ be reusable across multiple protocol VIPs (AXI, AHB, OCP, ...) lives here.
 |---|---|
 | [`ovip_global_pkg`](ovip_global_pkg.sv) | Shared typedefs (e.g. `bytestream`, `bitstream`). |
 | [`mem/ovip_mem_pkg`](mem/ovip_mem_pkg.sv) | `ovip_mem`: word-addressed associative-array memory model with byte-enable writes, bytestream API, configurable word size, a line-by-line `compare`, and optional valid ranges that refuse an access outside them. `ovip_mem_space`: a memory built from `ovip_mem` instances with an address map, for a system of several slaves: a region of the system space lands on one sub-memory at an offset or is striped over several (memory interleaving); the system-space accesses split a range at every map boundary. |
+| [`ovip_common_defines.sv`](ovip_common_defines.sv) | Compile-time defines shared by every VIP: `OVIP_INPUT_SKEW` (default `1step`) and `OVIP_OUTPUT_SKEW` (default `0`), the clocking-block skews of every OVIP interface. Override with `+define+`. |
 
 ## Using
 

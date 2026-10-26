@@ -2,6 +2,7 @@
 `define OVIP_MEM_PKG__SV
 
 package ovip_mem_pkg;
+	timeunit 1ns; timeprecision 1ps;
 	import uvm_pkg::*;
 	`include "uvm_macros.svh"
 

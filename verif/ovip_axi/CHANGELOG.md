@@ -9,12 +9,40 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.5.0] -- 2026-10-26
+
 ### Added -- VIP
 
 - `ovip_axi_simple_wr_bursts_seq.qos[$]`: the AxQOS of each burst, in the
   same order as `addr`, `len` and `size`. Burst `ii` takes `qos[ii]`, so one
   sequence can drive a master in several service classes. A burst past the
   end of the list keeps AxQOS 0, as before; an empty list changes nothing.
+
+### Changed -- VIP
+
+- `ovip_axi_pkg` declares `timeunit 1ns; timeprecision 1ps;`. The
+  package took the time unit of the compilation unit before (the simulator's
+  default, or an earlier `timescale` in the compile order); `$time` and
+  `$realtime` in log lines and transaction time stamps are in ns on every
+  simulator now. Verilator no longer reports `TIMESCALEMOD` for it.
+
+- The slave driver's `vif.slave_cb.triggered` check in `transaction_acceptor`
+  (an item returned off a `slave_cb` edge, with its one-cycle wait and the
+  `SLAVE_DRV` warning) is compiled out on Verilator, under `ifndef VERILATOR`,
+  the same way it is on Xcelium: neither accepts `.triggered` on a clocking
+  block. Nothing changes on Questa or VCS.
+
+- The interface's clocking blocks (`monitor_cb`, `master_cb`, `slave_cb`)
+  take their skews from `OVIP_INPUT_SKEW` and `OVIP_OUTPUT_SKEW`
+  (`ovip_common/ovip_common_defines.sv`, overridable with `+define+`),
+  where they had `localparam INPUT_SKEW = 0; OUTPUT_SKEW = 0;` that nothing
+  could override. The default input skew is `1step`: an input is sampled
+  with its value from before the clock edge, as a synchronous receiver
+  sees it. `#0` sampled after the edge's own updates, and Verilator does
+  exactly that: a VALID dropped at the sampling edge was reported by the
+  monitor's stability check as "de-asserted before the transfer was
+  sampled" (noc_proj's bench on Verilator 5.053; Questa passed the same
+  seed). `+define+OVIP_INPUT_SKEW=0` restores the old sampling.
 
 ### Fixed -- VIP
 

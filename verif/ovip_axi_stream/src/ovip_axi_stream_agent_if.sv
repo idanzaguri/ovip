@@ -33,7 +33,7 @@ interface ovip_axi_stream_agent_if(
 	wire twakeup;
 
 	clocking monitor_cb @(posedge aclk);
-		default input #1step output #0;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input aresetn;
 		input tvalid, tready;
 		input tdata, tstrb, tkeep, tlast;
@@ -43,7 +43,7 @@ interface ovip_axi_stream_agent_if(
 
 	// Transmitter side -- drives everything except tready.
 	clocking master_cb @(posedge aclk);
-		default input #1step output #0;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input  aresetn;
 		input  tready;
 		output tvalid;
@@ -54,7 +54,7 @@ interface ovip_axi_stream_agent_if(
 
 	// Receiver side -- drives only tready.
 	clocking slave_cb @(posedge aclk);
-		default input #1step output #0;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input  aresetn;
 		input  tvalid;
 		input  tdata, tstrb, tkeep, tlast;

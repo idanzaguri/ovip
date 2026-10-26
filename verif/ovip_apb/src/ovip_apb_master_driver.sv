@@ -38,6 +38,7 @@ class ovip_apb_master_driver extends uvm_driver#(ovip_apb_trans);
 
 	extern virtual task          rst_monitor();
 	extern virtual function void drive_reset_values();
+	extern virtual function void drive_idle_payload();
 	extern virtual task          tx_driver();
 	extern virtual task          drive_transfer(ovip_apb_trans tr);
 	extern virtual function bit  check_trans_validity(ovip_apb_trans tr);
@@ -95,12 +96,32 @@ endtask : rst_monitor
 function void ovip_apb_master_driver::drive_reset_values();
 	vif.master_cb.psel    <= 1'b0;
 	vif.master_cb.penable <= 1'b0;
+	if(cfg.randomize_idle_payload)
+	begin
+		drive_idle_payload();
+		return;
+	end
 	vif.master_cb.paddr   <= '0;
 	vif.master_cb.pwrite  <= 1'b0;
 	vif.master_cb.pwdata  <= '0;
 	vif.master_cb.pstrb   <= '0;
 	vif.master_cb.pprot   <= '0;
 endfunction : drive_reset_values
+
+
+// Random values on the payload while PSEL is LOW (cfg.randomize_idle_payload),
+// inside the configured widths. PSTRB and PPROT stay 0 where absent.
+function void ovip_apb_master_driver::drive_idle_payload();
+	ovip_apb_addr_t a = '0;
+	ovip_apb_data_t d = '0;
+	for(int ii = 0; ii < $bits(a); ii += 32) a[ii +: 32] = $urandom;
+	for(int ii = 0; ii < $bits(d); ii += 32) d[ii +: 32] = $urandom;
+	vif.master_cb.paddr  <= a & ADDR_MASK;
+	vif.master_cb.pwrite <= $urandom_range(1, 0);
+	vif.master_cb.pwdata <= d & DATA_MASK;
+	vif.master_cb.pstrb  <= cfg.pstrb_en ? (ovip_apb_strb_t'($urandom) & STRB_MASK) : '0;
+	vif.master_cb.pprot  <= cfg.pprot_en ? $urandom_range(7, 0) : '0;
+endfunction : drive_idle_payload
 
 
 task ovip_apb_master_driver::tx_driver();
@@ -122,7 +143,7 @@ task ovip_apb_master_driver::tx_driver();
 		// completion edge), its SETUP assignments overwrite these in the
 		// same timestep -- PSEL never drops: the spec's direct
 		// completion-to-SETUP transition, at no alignment cost.
-		if(cfg.drive_reset_values_when_idle)
+		if(cfg.drive_reset_values_when_idle || cfg.randomize_idle_payload)
 			drive_reset_values();
 		else
 		begin

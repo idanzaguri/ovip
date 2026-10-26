@@ -34,8 +34,9 @@ export OVIP_ROOT=/path/to/ovip
 | Modelsim/Questa | `vlog -sv -mfcu -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f` |
 | VCS             | `vcs -sverilog -ntb_opts uvm-1.2 -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f` |
 | Xcelium         | `xrun -uvm -uvmhome CDNS-1.2 -sv -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f` |
+| Verilator       | `verilator --binary --timing +define+UVM_NO_DPI +incdir+$UVM_HOME/src $UVM_HOME/src/uvm_pkg.sv -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f` |
 
-The filelist relies on the `OVIP_ROOT` environment variable; nothing else needs to be configured. UVM 1.2 comes from your simulator's built-in library (no source needed). Apply any [Compile-Time Defines](#compile-time-defines) below as additional `+define+...` arguments on the same compile line.
+The filelist relies on the `OVIP_ROOT` environment variable; nothing else needs to be configured. UVM 1.2 comes from your simulator's built-in library (no source needed); Verilator has none, so `UVM_HOME` is a UVM 1.2 source tree and `randomize()` needs an SMT solver at run time, see [Running on Verilator](../../README.md#running-on-verilator). Apply any [Compile-Time Defines](#compile-time-defines) below as additional `+define+...` arguments on the same compile line.
 
 For a minimal end-to-end example you can run as-is, see [`examples/ovip_axi/01_minimal_loopback/`](../../examples/ovip_axi/01_minimal_loopback/).
 
@@ -94,6 +95,13 @@ or globally:
 - Set `OVIP_AXI_MAX_DATA_WIDTH ≥ bus_width*8` (e.g., `4096` for 512B buses).
 - Leave `size_width` at its default `3`: `check_config` auto-bumps it to `4` (with a UVM_INFO) whenever `bus_width > 128B`. The `awsize`/`arsize` wires are 4 bits wide so spec-compliant agents (size ≤ 7) are unaffected.
 
+
+### Clocking-Block Skews
+
+| Define | Default | Used for |
+|---|---|---|
+| `OVIP_INPUT_SKEW` | `1step` | Input skew of the interface's clocking blocks (`monitor_cb`, `master_cb`, `slave_cb`): the value from before the clock edge. Shared by every OVIP VIP (`ovip_common/ovip_common_defines.sv`). |
+| `OVIP_OUTPUT_SKEW` | `0` | Output skew of the same clocking blocks. |
 
 ## Basic Timings
 

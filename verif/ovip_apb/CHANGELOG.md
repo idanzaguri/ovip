@@ -9,6 +9,36 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.3.0] -- 2026-10-26
+
+### Added -- VIP
+
+- `randomize_idle_payload` in `ovip_apb_agent_config`, requester only:
+  random PADDR, PWRITE, PWDATA, and PSTRB and PPROT where present, while
+  PSEL is LOW, at reset and after every transfer. A completer that takes
+  a payload signal while PSEL is LOW then shows it. Off by default. Asked
+  for by logion_tb, whose read-only APB requesters never toggled PWRITE
+  or PWDATA at the NoC's port. `ovip_apb_idle_payload_test`.
+
+### Changed -- VIP
+
+- `ovip_apb_pkg` declares `timeunit 1ns; timeprecision 1ps;`. The
+  package took the time unit of the compilation unit before (the simulator's
+  default, or an earlier `timescale` in the compile order); `$time` and
+  `$realtime` in log lines and transaction time stamps are in ns on every
+  simulator now. Verilator no longer reports `TIMESCALEMOD` for it.
+
+- The completer driver's `vif.slave_cb.triggered` check (an item answered
+  off the SETUP edge) is compiled out on Verilator, under `ifndef VERILATOR`,
+  the same way it is on Xcelium: neither accepts `.triggered` on a clocking
+  block. Nothing changes on Questa or VCS.
+
+- The interface's clocking blocks (`monitor_cb`, `master_cb`, `slave_cb`)
+  take their skews from `OVIP_INPUT_SKEW` and `OVIP_OUTPUT_SKEW`
+  (`ovip_common/ovip_common_defines.sv`, overridable with `+define+`)
+  instead of the hard-coded `input #1step output #0`. The defaults are the
+  same values, so nothing changes unless you override them.
+
 ### Fixed -- VIP
 
 - The monitor took a reset in the middle of a transfer as a protocol error
@@ -23,6 +53,9 @@ breaks are called out explicitly in their changelog entry.
 
 - `ovip_apb_mid_test_reset_test`: a reset while a transfer waits in ACCESS,
   PSEL dropped with it, then traffic after the release.
+- `ovip_apb_idle_payload_test`: write and read-back traffic with random
+  gaps from a requester with `randomize_idle_payload`; the idle cycles
+  must show PWRITE HIGH and PADDR and PWDATA non-zero.
 
 ## [0.2.0] -- 2026-10-05
 

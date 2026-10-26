@@ -30,6 +30,13 @@ class ovip_apb_agent_config extends uvm_object;
 	// and waveform readability). On by default.
 	bit drive_reset_values_when_idle = 1;
 
+	// Requester only. Drive random PADDR, PWRITE, PWDATA, and PSTRB and
+	// PPROT where present, while PSEL is LOW: at reset and after every
+	// transfer, instead of zero or the last value. APB gives them a meaning
+	// only while PSEL is HIGH, so a completer that takes one while PSEL is
+	// LOW then shows it. Off by default.
+	bit randomize_idle_payload = 0;
+
 	// Completer-side default wait-state range, used by the base slave
 	// sequence when the test doesn't override its knobs.
 	int unsigned default_min_wait_states = 0;

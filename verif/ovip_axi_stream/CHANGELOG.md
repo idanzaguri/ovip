@@ -9,6 +9,22 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.2.0] -- 2026-10-26
+
+### Changed -- VIP
+
+- `ovip_axi_stream_pkg` declares `timeunit 1ns; timeprecision 1ps;`. The
+  package took the time unit of the compilation unit before (the simulator's
+  default, or an earlier `timescale` in the compile order); `$time` and
+  `$realtime` in log lines and transaction time stamps are in ns on every
+  simulator now. Verilator no longer reports `TIMESCALEMOD` for it.
+
+- The interface's clocking blocks (`monitor_cb`, `master_cb`, `slave_cb`)
+  take their skews from `OVIP_INPUT_SKEW` and `OVIP_OUTPUT_SKEW`
+  (`ovip_common/ovip_common_defines.sv`, overridable with `+define+`)
+  instead of the hard-coded `input #1step output #0`. The defaults are the
+  same values, so nothing changes unless you override them.
+
 ### Fixed -- VIP
 
 - The master driver sent a packet from before a reset again after the

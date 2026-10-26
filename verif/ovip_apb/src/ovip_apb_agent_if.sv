@@ -30,7 +30,7 @@ interface ovip_apb_agent_if(
 	wire                                pslverr;
 
 	clocking monitor_cb @(posedge pclk);
-		default input #1step output #0;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input presetn;
 		input psel, penable, paddr, pwrite, pwdata, pstrb, pprot;
 		input pready, prdata, pslverr;
@@ -38,7 +38,7 @@ interface ovip_apb_agent_if(
 
 	// Requester side -- drives everything except PREADY/PRDATA/PSLVERR.
 	clocking master_cb @(posedge pclk);
-		default input #1step output #0;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input  presetn;
 		input  pready, prdata, pslverr;
 		output psel, penable, paddr, pwrite, pwdata, pstrb, pprot;
@@ -46,7 +46,7 @@ interface ovip_apb_agent_if(
 
 	// Completer side -- drives only PREADY/PRDATA/PSLVERR.
 	clocking slave_cb @(posedge pclk);
-		default input #1step output #0;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input  presetn;
 		input  psel, penable, paddr, pwrite, pwdata, pstrb, pprot;
 		output pready, prdata, pslverr;

@@ -10,6 +10,8 @@
 // many of those bits are actually active per agent (values above the cap are
 // rejected by check_config). The spec caps PADDR at 32 bits and PWDATA/PRDATA
 // at 32 bits (8, 16, or 32), so the defaults are already the spec maxima.
+`include "ovip_common_defines.sv"
+
 `ifndef OVIP_APB_MAX_ADDR_WIDTH
 	`define OVIP_APB_MAX_ADDR_WIDTH 32
 `endif

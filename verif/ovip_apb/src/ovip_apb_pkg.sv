@@ -6,6 +6,7 @@
 `include "ovip_apb_agent_if.sv"
 
 package ovip_apb_pkg;
+	timeunit 1ns; timeprecision 1ps;
 	import uvm_pkg::*;
 	`include "uvm_macros.svh"
 

@@ -5,6 +5,8 @@
 	`include "ovip_axi_user_defines.sv"
 `endif
 
+`include "ovip_common_defines.sv"
+
 `ifndef OVIP_AXI_MAX_ID_WIDTH
 	`define OVIP_AXI_MAX_ID_WIDTH   16
 `endif

@@ -8,12 +8,32 @@ and this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.5.0] -- 2026-10-26
+
+### Added
+
+- `ovip_common_defines.sv`: the compile-time defines shared by every VIP.
+  `OVIP_INPUT_SKEW` (default `1step`) and `OVIP_OUTPUT_SKEW` (default `0`)
+  are the clocking-block skews of every OVIP interface; `+define+` either
+  on the compile line to override it for all of them. Each VIP's defines
+  file includes it.
+
+### Changed
+
+- `ovip_global_pkg` and `ovip_mem_pkg` declare `timeunit 1ns; timeprecision
+  1ps;`. The packages took the time unit of the compilation unit before (the
+  simulator's default, or an earlier `timescale` in the compile order);
+  `$time` and `$realtime` in log lines and transaction time stamps are in ns
+  on every simulator now. Verilator no longer reports `TIMESCALEMOD` for them.
+
 ### Fixed
 
 - `ovip_mem_space::resolve` indexed a striped region's sub list with the
   64-bit `chunk % n`, which Xcelium elaborates with a `BIGWIX` (memory
   index truncation) warning. The index is now cast to `int`; the value,
-  always below the number of subs, is unchanged.
+  always below the number of subs, is unchanged. The cast is done into a
+  local variable before the index: Verilator 5.052 fails with an internal
+  error on a cast written directly inside a queue index.
 
 ## [0.4.0] -- 2026-10-05
 

@@ -9,6 +9,8 @@
 // value sets the *physical wire width* in the interface; the agent's runtime
 // `cfg.*_width` fields select how many of those bits are actually active per
 // agent (values above the cap are rejected by check_config).
+`include "ovip_common_defines.sv"
+
 `ifndef OVIP_AXI_STREAM_MAX_DATA_WIDTH
 	`define OVIP_AXI_STREAM_MAX_DATA_WIDTH (128*8)
 `endif

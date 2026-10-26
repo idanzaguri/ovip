@@ -224,6 +224,7 @@ endfunction : region_at
 function bit ovip_mem_space::resolve(addr_t addr, output int sub, output addr_t sub_addr, output addr_t run);
 	int i = region_at(addr);
 	addr_t off;
+	int sub_idx;
 	sub = -1; sub_addr = 0; run = 0;
 	if (i < 0) return 0;
 	off = addr - regions[i].base;
@@ -238,7 +239,8 @@ function bit ovip_mem_space::resolve(addr_t addr, output int sub, output addr_t 
 		addr_t chunk  = off / regions[i].granule;
 		addr_t in_chunk = off % regions[i].granule;
 		int    n      = regions[i].subs.size();
-		sub      = regions[i].subs[int'(chunk % n)];
+		sub_idx  = int'(chunk % n);   // cast first: Verilator 5.052 fails on a cast inside a queue index
+		sub      = regions[i].subs[sub_idx];
 		sub_addr = regions[i].sub_base + (chunk / n) * regions[i].granule + in_chunk;
 		run      = regions[i].granule - in_chunk;
 		if (run > regions[i].size - off) run = regions[i].size - off;

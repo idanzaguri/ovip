@@ -77,6 +77,8 @@ See [`ovip_ace.f`](ovip_ace.f) for the VCS / Xcelium invocations.
 |---|---|---|
 | `OVIP_ACE_MAX_ACADDR_WIDTH` | `OVIP_AXI_MAX_ADDR_WIDTH` | Snoop address bus wire width. |
 | `OVIP_ACE_MAX_CDDATA_WIDTH` | `OVIP_AXI_MAX_DATA_WIDTH` | Snoop data bus wire width. |
+| `OVIP_INPUT_SKEW` | `1step` | Input skew of the interface's clocking blocks (`monitor_cb`, `master_cb`, `slave_cb`): the value from before the clock edge. Shared by every OVIP VIP (`ovip_common/ovip_common_defines.sv`). |
+| `OVIP_OUTPUT_SKEW` | `0` | Output skew of the same clocking blocks. |
 
 The AXI-side width defines (`OVIP_AXI_MAX_DATA_WIDTH`, etc.) apply as usual.
 

@@ -418,11 +418,13 @@ task ovip_axi_slave_driver::transaction_acceptor();
 			// block event. This holds as long as the slave sequence does not consume
 			// simulation time between getting the item and sending the response.
 			`ifndef XCELIUM
+			`ifndef VERILATOR
 			if(!vif.slave_cb.triggered) begin
 				if(!cfg.suppress_delayed_slave_seq_warning)
 					`uvm_warning("SLAVE_DRV", "Slave sequence returned an item off the clocking-block edge; waiting for the next clock cycle to drive it, which affects item scheduling. Set cfg.suppress_delayed_slave_seq_warning to suppress this warning.")
 				@(vif.slave_cb);
 			end
+			`endif
 			`endif
 		end
 		else

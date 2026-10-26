@@ -25,6 +25,7 @@ want to add them.
 | Completer model | Reactive memory-backed base slave sequence (`ovip_mem`), or override the hooks for a register model |
 | Scoreboard | `ovip_apb_scoreboard`, in-order, `trans.diff()`-formatted mismatch reports |
 | Transaction logging | Per-agent + combined-file text log via `cfg.enable_trans_log` |
+| Idle values | 0 on every idle cycle (`cfg.drive_reset_values_when_idle`, on by default), the last value, or random payload on a requester (`cfg.randomize_idle_payload`) |
 
 Full list of known limitations lives in [CHANGELOG.md](CHANGELOG.md);
 wanted-features in [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -46,8 +47,12 @@ export OVIP_ROOT=/path/to/ovip
 | Modelsim/Questa | `vlog -sv -mfcu -f $OVIP_ROOT/verif/ovip_apb/ovip_apb.f` |
 | VCS             | `vcs -sverilog -ntb_opts uvm-1.2 -f $OVIP_ROOT/verif/ovip_apb/ovip_apb.f` |
 | Xcelium         | `xrun -uvm -uvmhome CDNS-1.2 -sv -f $OVIP_ROOT/verif/ovip_apb/ovip_apb.f` |
+| Verilator       | `verilator --binary --timing +define+UVM_NO_DPI +incdir+$UVM_HOME/src $UVM_HOME/src/uvm_pkg.sv -f $OVIP_ROOT/verif/ovip_apb/ovip_apb.f` |
 
-UVM 1.2 comes from your simulator's built-in library.
+UVM 1.2 comes from your simulator's built-in library. Verilator has none:
+`UVM_HOME` is a UVM 1.2 source tree, and `randomize()` needs an SMT solver
+(z3, cvc5, yices-smt2 or bitwuzla) at run time. See
+[Running on Verilator](../../README.md#running-on-verilator).
 
 ## Instantiating the agents
 
@@ -66,6 +71,11 @@ ovip_apb_agent req_agent = ovip_apb_agent::type_id::create("req_agent", this);
 req_agent.cfg = req_cfg;
 // ... and the same with OVIP_APB_COMPLETER for the completer side.
 ```
+
+A requester with `req_cfg.randomize_idle_payload = 1` drives random PADDR,
+PWRITE, PWDATA, PSTRB and PPROT while PSEL is LOW, at reset and after every
+transfer. APB gives them a meaning only while PSEL is HIGH, so a completer
+that takes one too early shows it. It is off by default.
 
 Bind the interface once per agent scope:
 
@@ -115,3 +125,5 @@ injection, directed wait states, or a register-model completer.
 | `OVIP_APB_WAIT_STATES_MAX` | 15 | Soft cap on randomized `num_wait_states` |
 | `OVIP_APB_DELAY_UNTIL_NEXT_TRANS_MAX` | 30 | Soft cap on randomized inter-transfer gaps |
 | `OVIP_APB_INCLUDE_USER_DEFINES` | off | Include a user-supplied `ovip_apb_user_defines.sv` first |
+| `OVIP_INPUT_SKEW` | `1step` | Input skew of the interface's clocking blocks (`monitor_cb`, `master_cb`, `slave_cb`): the value from before the clock edge. Shared by every OVIP VIP (`ovip_common/ovip_common_defines.sv`). |
+| `OVIP_OUTPUT_SKEW` | `0` | Output skew of the same clocking blocks. |

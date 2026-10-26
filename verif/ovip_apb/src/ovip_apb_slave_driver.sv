@@ -104,10 +104,12 @@ task ovip_apb_slave_driver::response_driver();
 		// holds as long as the slave sequence does not consume simulation
 		// time between getting the request and finishing the response item.
 		`ifndef XCELIUM
+		`ifndef VERILATOR
 		if(!vif.slave_cb.triggered)
 		begin
 			`uvm_warning({MESSAGE_TAG, "APB_SLAVE_DRV"}, "Slave sequence returned an item off the clocking-block edge; response timing shifts by the cycles consumed.")
 		end
+		`endif
 		`endif
 
 		drive_response(req);

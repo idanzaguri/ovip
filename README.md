@@ -10,7 +10,9 @@ multi-simulator UVM VIPs out there, and I think there should be.
 
 Same shape for every VIP added here:
 
-- Production-grade Modelsim/Questa, VCS, and Xcelium portability.
+- Production-grade Modelsim/Questa, VCS, and Xcelium portability. Verilator
+  runs the examples and the APB and AXI test suites too; see
+  [Running on Verilator](#running-on-verilator) for the requirements.
 - One compile filelist, one env var -- drops into your flow in two lines.
 - Whatever's genuinely shared between VIPs (memory models, type helpers,
   sequence base classes) lives in [`verif/ovip_common/`](verif/ovip_common/)
@@ -36,7 +38,7 @@ Same shape for every VIP added here:
 
 ## Quickstart
 
-You need a UVM-1.2-capable simulator (Modelsim/Questa, VCS, or Xcelium).
+You need a UVM-1.2-capable simulator (Modelsim/Questa, VCS, or Xcelium), or Verilator with a UVM source tree (see [Running on Verilator](#running-on-verilator)).
 
 ```sh
 cd examples/ovip_axi/01_minimal_loopback
@@ -46,6 +48,46 @@ make SIM=modelsim       # or SIM=vcs / SIM=xcelium
 That's it -- the loopback runs and prints the UVM Report Summary.
 
 > **Free-simulator path:** the loopback example has been validated on **Modelsim** (Intel/Altera FPGA Starter Edition is free). The VCS and Xcelium make targets are wired up but require a commercial license to actually run.
+
+## Running on Verilator
+
+Verilator compiles and runs the VIPs. Validated on 2026-10-25:
+
+| What | Verilator | Result |
+|---|---|---|
+| `examples/ovip_apb/01_loopback`, `examples/ovip_axi_stream/01_loopback` | 5.052 | `UVM_ERROR : 0` |
+| `examples/ovip_axi/01_minimal_loopback` | git main after 5.052 | `UVM_ERROR : 0` (5.052 miscompiles a parameterized class with a virtual-interface type parameter; fixed upstream after 5.052) |
+| `ovip_apb_testbench` (7 tests), `ovip_axi_testbench` (52 tests) in [ovip-dev](https://github.com/idanzaguri/ovip-dev) | git main after 5.052 | all pass, except the X-injection test: Verilator is 2-state |
+
+What you need:
+
+- **A UVM source tree.** Verilator ships no UVM. `UVM_HOME` below is a UVM 1.2
+  source tree (the Accellera `uvm-1.2` release, or the copy your simulator
+  installs). [verilator/uvm](https://github.com/verilator/uvm) (UVM 2020-3.1)
+  also compiles and runs the APB example.
+- **`--timing`** and `+define+UVM_NO_DPI` when you use only the VIPs. Tests
+  that call `uvm_hdl_force` need `--vpi`, UVM's `dpi/uvm_dpi.cc`, and the
+  forced signals marked `forceable` in a Verilator config file; UVM 1.2 has no
+  Verilator backend for `uvm_hdl_*`, the one from verilator/uvm
+  (`uvm_hdl_verilator.c`) drops in.
+- **An SMT solver** on the `PATH` or in `VERILATOR_SOLVER` (z3, cvc5, yices-smt2
+  or bitwuzla). Verilator calls it at run time for every `randomize()` with
+  constraints; without it `randomize()` returns 0.
+
+```sh
+verilator --binary --timing -j 8 -Wno-fatal -Wno-lint -Wno-style \
+    +define+UVM_NO_DPI +incdir+$UVM_HOME/src $UVM_HOME/src/uvm_pkg.sv \
+    -f $OVIP_ROOT/verif/ovip_apb/ovip_apb.f \
+    +incdir+examples/ovip_apb/01_loopback examples/ovip_apb/01_loopback/loopback_example.sv \
+    --top-module tb_top -o Vtb_top
+./obj_dir/Vtb_top +UVM_NO_RELNOTES
+```
+
+Build time is dominated by UVM: about 3.5 minutes on 12 cores per
+testbench. One build serves every test of a testbench through
+`+UVM_TESTNAME`. Limits: Verilator is 2-state, so X/Z injection and the
+monitors' X/Z checks have no effect, and the VIP code compiles with
+`-Wno-lint -Wno-style` (width and unused-signal warnings remain).
 
 ## Integrating a VIP into your testbench
 
@@ -57,6 +99,7 @@ export OVIP_ROOT=/path/to/this/repo
 vlog -sv -mfcu -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f   # Modelsim/Questa
 vcs  -sverilog -ntb_opts uvm-1.2 -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f   # VCS
 xrun -uvm -uvmhome CDNS-1.2 -sv  -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f   # Xcelium
+verilator --binary --timing +define+UVM_NO_DPI +incdir+$UVM_HOME/src $UVM_HOME/src/uvm_pkg.sv -f $OVIP_ROOT/verif/ovip_axi/ovip_axi.f <your files> --top-module <top>   # Verilator
 ```
 
 Full details in [`verif/ovip_axi/README.md`](verif/ovip_axi/README.md).

@@ -13,6 +13,8 @@
 // Snoop address bus -- typically same as AXI addr (defaults to MAX_ADDR_WIDTH
 // from ovip_axi). Declared independently so an agent that wants a narrower AC
 // channel doesn't have to widen its AXI addr at the same time.
+`include "ovip_common_defines.sv"
+
 `ifndef OVIP_ACE_MAX_ACADDR_WIDTH
 	`define OVIP_ACE_MAX_ACADDR_WIDTH `OVIP_AXI_MAX_ADDR_WIDTH
 `endif

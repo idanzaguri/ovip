@@ -22,9 +22,6 @@ interface ovip_ace_agent_if(
 	input logic aclk,
 	input logic aresetn
 );
-	localparam INPUT_SKEW  = 0;
-	localparam OUTPUT_SKEW = 0;
-
 	bit is_master;
 	bit is_active;
 
@@ -140,7 +137,7 @@ interface ovip_ace_agent_if(
 	// -----------------------------------------------------------------
 
 	clocking monitor_cb @(posedge aclk);
-		default input #INPUT_SKEW output #OUTPUT_SKEW;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input aresetn;
 
 		// AXI: address write channel
@@ -230,7 +227,7 @@ interface ovip_ace_agent_if(
 	endclocking
 
 	clocking master_cb @(posedge aclk);
-		default input #INPUT_SKEW output #OUTPUT_SKEW;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input aresetn;
 
 		// AXI: address write channel
@@ -323,7 +320,7 @@ interface ovip_ace_agent_if(
 	endclocking
 
 	clocking slave_cb @(posedge aclk);
-		default input #INPUT_SKEW output #OUTPUT_SKEW;
+		default input #`OVIP_INPUT_SKEW output #`OVIP_OUTPUT_SKEW;
 		input aresetn;
 
 		// AXI: address write channel (master drives)
