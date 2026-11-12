@@ -1,6 +1,12 @@
 `ifndef OVIP_AXI_STREAM_TYPES__SV
 `define OVIP_AXI_STREAM_TYPES__SV
 
+	// The types of ovip_axi_stream: the signal types at the wire widths of
+	// ovip_axi_stream_defines.sv, the protocol issue, the agent side, the
+	// byte qualifier of TKEEP and TSTRB, and the TREADY pattern. The README
+	// sections "Byte qualifiers (TKEEP, TSTRB)" and "TREADY patterns" use
+	// them.
+
 	typedef bit [`OVIP_AXI_STREAM_MAX_DATA_WIDTH-1 : 0] ovip_axi_stream_data_t;
 	typedef bit [`OVIP_AXI_STREAM_MAX_STRB_WIDTH-1 : 0] ovip_axi_stream_strb_t;
 	typedef bit [`OVIP_AXI_STREAM_MAX_KEEP_WIDTH-1 : 0] ovip_axi_stream_keep_t;

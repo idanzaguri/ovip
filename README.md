@@ -23,9 +23,9 @@ Same shape for every VIP added here:
 | | |
 |---|---|
 | [`verif/ovip_axi/`](verif/ovip_axi/) | The AXI verification IP -- master + slave agents, monitor, configurable widths, sequence library. Start with the [VIP README](verif/ovip_axi/README.md). |
-| [`verif/ovip_axi_stream/`](verif/ovip_axi_stream/) | The AXI-Stream verification IP -- transmitter + receiver agents, monitor with the full set of spec-rule checks, scoreboard, sequence library. Covers AXI4-Stream and AXI5-Stream. Start with the [VIP README](verif/ovip_axi_stream/README.md). |
+| [`verif/ovip_axi_stream/`](verif/ovip_axi_stream/) | The AXI-Stream verification IP -- transmitter + receiver agents, monitor with the spec-rule checks (the AXI5-Stream parity signals are not implemented yet), scoreboard, sequence library. Covers AXI4-Stream and AXI5-Stream. Start with the [VIP README](verif/ovip_axi_stream/README.md). |
 | [`verif/ovip_apb/`](verif/ovip_apb/) | The APB verification IP -- requester + completer agents, reactive memory-backed completer, monitor with the full set of spec-rule checks, scoreboard, transaction logging, sequence library. Covers APB3 and APB4. Start with the [VIP README](verif/ovip_apb/README.md). |
-| [`verif/ovip_ace/`](verif/ovip_ace/) | **:warning: EXPERIMENTAL, AI-GENERATED, UNVERIFIED.** The ACE / ACE-Lite verification IP, built as an extension of ovip_axi. Compiles and runs basic coherent traffic; the snoop channels and protocol checks are not yet confirmed. Read the [VIP README](verif/ovip_ace/README.md) banner before using. |
+| [`verif/ovip_ace/`](verif/ovip_ace/) | **:warning: EXPERIMENTAL, AI-GENERATED, UNVERIFIED.** The ACE / ACE-Lite verification IP, built as an extension of ovip_axi. Compiles and runs coherent traffic and snoops; its fixes were checked with directed tests only, and it has no regression. Read the [VIP README](verif/ovip_ace/README.md) banner before using. |
 | [`verif/ovip_common/`](verif/ovip_common/) | Shared utilities -- memory model, common type helpers. Imported by every VIP in the family. |
 | [`examples/ovip_axi/01_minimal_loopback/`](examples/ovip_axi/01_minimal_loopback/) | The smallest runnable example. Clone, `make`, watch `UVM_ERROR : 0`. |
 | [`examples/ovip_axi/02_out_of_order_reads/`](examples/ovip_axi/02_out_of_order_reads/) | Slave returns responses in reverse-issued order (3, 2, 1, 0). Demonstrates `rd_out_of_order_depth`, `rd_scheduling_alg`, and per-transaction `data_delay`. |
@@ -34,7 +34,7 @@ Same shape for every VIP added here:
 | [`examples/ovip_axi_stream/01_loopback/`](examples/ovip_axi_stream/01_loopback/) | Smallest AXI-Stream hello-world: transmitter + receiver on the same interface, 4 single-beat packets, success when `UVM_ERROR : 0`. |
 | [`examples/ovip_axi_stream/02_rx_to_mem/`](examples/ovip_axi_stream/02_rx_to_mem/) | Receiver-side subscriber pulls `trans.get_data_bytes()` (null/position bytes filtered out per the spec) and writes the resulting byte stream into `ovip_mem`. Round-trip verified by reading the mem back. |
 | [`examples/ovip_apb/01_loopback/`](examples/ovip_apb/01_loopback/) | Smallest APB hello-world: requester + memory-backed completer on the same interface, 4 writes + self-checking read-backs, success when `UVM_ERROR : 0`. |
-| [`examples/ovip_ace/01_coherent_loopback/`](examples/ovip_ace/01_coherent_loopback/) | **:warning: AI-generated, unverified VIP.** Master + interconnect ACE agents; coherent writes/reads with AxDOMAIN/AxSNOOP run to `UVM_ERROR : 0`. The snoop path is not yet confirmed. |
+| [`examples/ovip_ace/01_coherent_loopback/`](examples/ovip_ace/01_coherent_loopback/) | **:warning: AI-generated, unverified VIP.** Master + interconnect ACE agents; coherent writes/reads with AxDOMAIN/AxSNOOP and one snoop run to `UVM_ERROR : 0`; the example checks its read data and its snoop. |
 
 ## Quickstart
 
@@ -57,7 +57,7 @@ Verilator compiles and runs the VIPs. Validated on 2026-10-25:
 |---|---|---|
 | `examples/ovip_apb/01_loopback`, `examples/ovip_axi_stream/01_loopback` | 5.052 | `UVM_ERROR : 0` |
 | `examples/ovip_axi/01_minimal_loopback` | git main after 5.052 | `UVM_ERROR : 0` (5.052 miscompiles a parameterized class with a virtual-interface type parameter; fixed upstream after 5.052) |
-| `ovip_apb_testbench` (7 tests), `ovip_axi_testbench` (52 tests) in [ovip-dev](https://github.com/idanzaguri/ovip-dev) | git main after 5.052 | all pass, except the X-injection test: Verilator is 2-state |
+| `ovip_apb_testbench` (20 tests), `ovip_axi_stream_testbench` (19 tests), `ovip_axi_testbench` (63 tests) in [ovip-dev](https://github.com/idanzaguri/ovip-dev) | git main after 5.052 | all pass (run again on 2026-11-12), except the X-injection test: Verilator is 2-state |
 
 What you need:
 

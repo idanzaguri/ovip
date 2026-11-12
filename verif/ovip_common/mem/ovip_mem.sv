@@ -58,6 +58,11 @@ class ovip_mem extends uvm_component;
 	// Read function
 	extern virtual function word_t read(addr_t addr);
 
+	// Same as read() but skips the alignment and range checks. read_bytestream
+	// calls it after it checked its own byte range, so a word that the valid
+	// ranges cover only in part still gives its valid bytes.
+	extern local function word_t read_aligned(addr_t addr);
+
 	// Function to read a bytestream
 	extern virtual function ovip_bytestream read_bytestream(addr_t addr, int size = WORD_SIZE);
 
@@ -159,6 +164,12 @@ function ovip_mem::word_t ovip_mem::read(addr_t addr);
 endfunction : read
 
 
+function ovip_mem::word_t ovip_mem::read_aligned(addr_t addr);
+	init_mem_line_if_not_exists(addr);
+	return mem[addr];
+endfunction : read_aligned
+
+
 function ovip_bytestream ovip_mem::read_bytestream(addr_t addr, int size = WORD_SIZE);
 	ovip_bytestream rd_data;
 	int byte_offset = addr % WORD_SIZE;
@@ -169,7 +180,7 @@ function ovip_bytestream ovip_mem::read_bytestream(addr_t addr, int size = WORD_
 
 	for (int i = 0; i < num_full_words; i++)
 	begin
-		word_t w = read(addr);
+		word_t w = read_aligned(addr);
 		int start_byte = (i == 0) ? byte_offset : 0;
 		for (int j = start_byte; j < WORD_SIZE && produced < size; j++) begin
 			rd_data.push_back(w[j*8 +: 8]);
@@ -199,6 +210,12 @@ function void ovip_mem::write_bytestream(addr_t addr, ref byte data[$], ref bit 
 	// scale even with the upfront alloc.
 	byte data_arr[] = new[size];
 	bit  be_arr[]   = new[byte_enable.size()];
+	if (!all_bytes_enabled && byte_enable.size() != size)
+	begin
+		`uvm_error("MEM/BAD_ACCESS", $sformatf("%s: write at 0x%0h: %0d data bytes but %0d byte enables; nothing done",
+			get_name(), addr, size, byte_enable.size()))
+		return;
+	end
 	if (refuse_if_invalid(addr, size, "write")) return;
 	foreach(data[i])        data_arr[i] = data[i];
 	foreach(byte_enable[i]) be_arr[i]   = byte_enable[i];
@@ -297,22 +314,24 @@ endfunction : num_valid_ranges
 
 
 function bit ovip_mem::is_valid(addr_t addr, addr_t size = 1);
-	addr_t pos = addr;
+	addr_t done = 0;   // bytes of [addr, addr + size) found valid so far
 	if (valid_ranges.size() == 0) return 1;
-	while (pos < addr + size)
+	while (done < size)
 	begin
-		// the farthest end among the ranges holding `pos`; ranges may touch or overlap
+		// the longest run from `pos` among the ranges holding it; ranges may
+		// touch or overlap. Offsets only, no base + size: a range may end at
+		// the top of the address space, where that sum wraps to 0.
+		addr_t pos = addr + done;
 		addr_t best = 0;
-		bit found = 0;
 		foreach (valid_ranges[i])
 			if (pos >= valid_ranges[i].base && pos - valid_ranges[i].base < valid_ranges[i].size)
 			begin
-				addr_t e = valid_ranges[i].base + valid_ranges[i].size;
-				if (!found || e > best) best = e;
-				found = 1;
+				addr_t run = valid_ranges[i].size - (pos - valid_ranges[i].base);
+				if (run > best) best = run;
 			end
-		if (!found) return 0;
-		pos = best;
+		if (best == 0) return 0;
+		if (best > size - done) best = size - done;
+		done += best;
 	end
 	return 1;
 endfunction : is_valid

@@ -1,19 +1,26 @@
 `ifndef OVIP_AXI_SCOREBOARD__SV
 `define OVIP_AXI_SCOREBOARD__SV
 
-// Reference scoreboard for ovip_axi traffic. Receives "expected" transactions
-// (typically from a predictor or a master-side mirror) and "actual" transactions
-// (typically from the slave-side monitor's analysis port) and pairs them off
-// per direction and per ID. Expected entries are sorted into per-(tr_type, id)
-// FIFOs so AXI's same-ID in-order response rule is respected.
+// Reference scoreboard for ovip_axi traffic. It takes "expected" transactions
+// on exp_ap (from a predictor, or from the monitor on one side of a DUT) and
+// "actual" transactions on act_ap (from the monitor on the other side) and
+// pairs them off per direction and per ID, in the order each side delivers
+// them: AXI keeps the transactions of one ID in order.
 //
-// Mismatches raise a UVM_ERROR built from ovip_axi_trans::diff(), so the log
-// shows exactly which interface-signal fields disagreed and what each side
-// expected / saw. Orphans (expected with no matching actual) and unexpected
-// actuals are counted separately and reported at end-of-test.
+// The two sides may arrive in any order. An item whose partner is not there
+// yet waits in a per-(tr_type, id) FIFO and is compared when the partner
+// arrives. So it does not matter which monitor publishes a transaction first,
+// or how long the DUT takes between its two sides.
+//
+// A pair that differs raises a UVM_ERROR (AXI_SB/MISMATCH) built from
+// ovip_axi_trans::diff(), so the log shows which interface-signal fields
+// disagreed and what each side had. What never paired up is reported at
+// check_phase: an expected item with no actual one as AXI_SB/ORPHAN, an
+// actual item with no expected one as AXI_SB/UNEXPECTED. report_phase prints
+// the four counters.
 //
 // Typical wiring:
-//     predictor.analysis_port.connect(scoreboard.exp_ap);
+//     master_agent.mon.analysis_port.connect(scoreboard.exp_ap);   // or a predictor
 //     slave_agent.mon.analysis_port.connect(scoreboard.act_ap);
 
 
@@ -29,6 +36,11 @@ class ovip_axi_scoreboard extends uvm_component;
 	// Per-ID FIFOs of expected transactions, split by direction.
 	protected ovip_axi_trans expected_wr[ovip_axi_id_t][$];
 	protected ovip_axi_trans expected_rd[ovip_axi_id_t][$];
+
+	// Per-ID FIFOs of actual transactions that arrived before their expected
+	// one, split by direction. For one direction and ID only one side waits.
+	protected ovip_axi_trans actual_wr[ovip_axi_id_t][$];
+	protected ovip_axi_trans actual_rd[ovip_axi_id_t][$];
 
 	// When set, write_exp stores a deep copy of the incoming transaction
 	// rather than the handle itself. Default 0 -- assumes a well-behaved
@@ -50,9 +62,24 @@ class ovip_axi_scoreboard extends uvm_component;
 	endfunction
 
 
-	// Sort an expected transaction into the right per-(tr_type, id) queue.
-	// Stores the handle directly by default; set `defensive_copy_expected = 1`
-	// to deep-copy first if the producer reuses transaction objects.
+	// Compare an expected transaction with its actual one. A mismatch goes
+	// through uvm_error so the caller's report server gates pass/fail.
+	protected virtual function void compare_pair(ovip_axi_trans exp, ovip_axi_trans act);
+		if(exp.compare(act)) begin
+			matched++;
+		end else begin
+			mismatches++;
+			`uvm_error("AXI_SB/MISMATCH",
+				$sformatf("trans mismatch (%s):\n%s",
+					exp.convert2string(), exp.diff(act)))
+		end
+	endfunction
+
+
+	// Pair an expected transaction with the oldest actual one that waits for
+	// its (tr_type, id), or keep it until that one arrives. Stores the handle
+	// directly by default; set `defensive_copy_expected = 1` to deep-copy
+	// first if the producer reuses transaction objects.
 	virtual function void write_exp(ovip_axi_trans t);
 		ovip_axi_trans entry;
 		if(defensive_copy_expected) begin
@@ -63,61 +90,52 @@ class ovip_axi_scoreboard extends uvm_component;
 			entry = t;
 		end
 		case(entry.tr_type)
-			OVIP_AXI_WRITE_TRANS: expected_wr[entry.id].push_back(entry);
-			OVIP_AXI_READ_TRANS:  expected_rd[entry.id].push_back(entry);
+			OVIP_AXI_WRITE_TRANS: begin
+				if(actual_wr.exists(entry.id) && actual_wr[entry.id].size())
+					compare_pair(entry, actual_wr[entry.id].pop_front());
+				else
+					expected_wr[entry.id].push_back(entry);
+			end
+			OVIP_AXI_READ_TRANS: begin
+				if(actual_rd.exists(entry.id) && actual_rd[entry.id].size())
+					compare_pair(entry, actual_rd[entry.id].pop_front());
+				else
+					expected_rd[entry.id].push_back(entry);
+			end
 			default: `uvm_error("AXI_SB/UNKNOWN_TYPE",
 				$sformatf("ignoring expected trans, unsupported tr_type=%s", entry.tr_type.name()))
 		endcase
 	endfunction
 
 
-	// Match an actual against the front of the expected queue for its
-	// (tr_type, id). Mismatches and orphans go through uvm_error so the
-	// caller's report server gates pass/fail accordingly.
+	// Pair an actual transaction with the oldest expected one that waits for
+	// its (tr_type, id), or keep its handle until that one arrives. An actual
+	// that is still waiting at check_phase is reported there.
 	virtual function void write_act(ovip_axi_trans t);
-		ovip_axi_trans exp;
-
 		case(t.tr_type)
 			OVIP_AXI_WRITE_TRANS: begin
-				if(!expected_wr.exists(t.id) || expected_wr[t.id].size() == 0) begin
-					`uvm_error("AXI_SB/UNEXPECTED",
-						$sformatf("WR id=%0d arrived with no expected match: %s",
-							t.id, t.convert2string()))
-					unexpected++;
-					return;
-				end
-				exp = expected_wr[t.id].pop_front();
+				if(expected_wr.exists(t.id) && expected_wr[t.id].size())
+					compare_pair(expected_wr[t.id].pop_front(), t);
+				else
+					actual_wr[t.id].push_back(t);
 			end
 			OVIP_AXI_READ_TRANS: begin
-				if(!expected_rd.exists(t.id) || expected_rd[t.id].size() == 0) begin
-					`uvm_error("AXI_SB/UNEXPECTED",
-						$sformatf("RD id=%0d arrived with no expected match: %s",
-							t.id, t.convert2string()))
-					unexpected++;
-					return;
-				end
-				exp = expected_rd[t.id].pop_front();
+				if(expected_rd.exists(t.id) && expected_rd[t.id].size())
+					compare_pair(expected_rd[t.id].pop_front(), t);
+				else
+					actual_rd[t.id].push_back(t);
 			end
 			default: begin
 				`uvm_error("AXI_SB/UNKNOWN_TYPE",
 					$sformatf("ignoring actual trans, unsupported tr_type=%s",
 						t.tr_type.name()))
-				return;
 			end
 		endcase
-
-		if(exp.compare(t)) begin
-			matched++;
-		end else begin
-			mismatches++;
-			`uvm_error("AXI_SB/MISMATCH",
-				$sformatf("trans mismatch (%s):\n%s",
-					exp.convert2string(), exp.diff(t)))
-		end
 	endfunction
 
 
-	// Anything left in the expected queues at check_phase never paired up.
+	// Anything left in the queues at check_phase never paired up: an expected
+	// transaction is an orphan, an actual one is unexpected.
 	virtual function void check_phase(uvm_phase phase);
 		ovip_axi_trans tr;
 		super.check_phase(phase);
@@ -132,6 +150,20 @@ class ovip_axi_scoreboard extends uvm_component;
 			`uvm_error("AXI_SB/ORPHAN", $sformatf("expected RD never arrived: %s",
 				tr.convert2string()))
 			orphans++;
+		end
+		foreach(actual_wr[id]) while(actual_wr[id].size()) begin
+			tr = actual_wr[id].pop_front();
+			`uvm_error("AXI_SB/UNEXPECTED",
+				$sformatf("WR id=%0d arrived with no expected match: %s",
+					tr.id, tr.convert2string()))
+			unexpected++;
+		end
+		foreach(actual_rd[id]) while(actual_rd[id].size()) begin
+			tr = actual_rd[id].pop_front();
+			`uvm_error("AXI_SB/UNEXPECTED",
+				$sformatf("RD id=%0d arrived with no expected match: %s",
+					tr.id, tr.convert2string()))
+			unexpected++;
 		end
 	endfunction
 

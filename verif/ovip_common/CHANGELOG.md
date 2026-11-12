@@ -8,6 +8,32 @@ and this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.5.1] -- 2026-11-12
+
+### Fixed
+
+- `ovip_mem::read_bytestream` read each word through `read()`, which checks
+  the whole word against the valid ranges. A read of valid bytes in a word
+  that a valid range covers only in part reported `MEM/OUT_OF_RANGE` and
+  returned zeros for that word, while the write of the same bytes worked.
+  The byte range is checked once now, as in `write_bytestream`. It showed
+  with a valid range, an `ovip_mem_space` region or a stripe granule that
+  is not a multiple of the 4-byte word.
+- `ovip_mem::is_valid` and the overlap check of `ovip_mem_space` added a
+  base to a size, which wraps to 0 for a range that ends at the top of the
+  64-bit address space. Every access to such a range was refused, an
+  access that ends at 2^64 passed with no check, and a region that
+  overlaps one ending there was accepted. Both compare offsets now.
+- `ovip_mem::write_bytestream` with byte enables of another length than
+  the data dropped the bytes past the last enable in silence. It reports
+  `MEM/BAD_ACCESS` and writes nothing now, as `ovip_mem_space` does.
+- `ovip_mem_space::add_striped_region` took a sub listed twice in one
+  stripe, and two chunks of the region then landed on the same bytes of
+  that sub. It is refused with `MEM_SPACE/BAD_REGION` now.
+- README: the typedefs are `ovip_bytestream` and `ovip_bitstream` (renamed
+  in 0.2.0), the word of `ovip_mem` is 4 bytes and fixed (`WORD_SIZE` is
+  not a class parameter), and `ovip_common_macros.sv` is in the contents.
+
 ## [0.5.0] -- 2026-10-26
 
 ### Added

@@ -24,6 +24,6 @@ end
 // XZ check helper used inline in the monitor.
 `define OVIP_AXI_STREAM_MON_XZ_CHECK(signal, name) \
 	if(^(vif.monitor_cb.signal) === 1'bx) \
-		`uvm_error("AXIS_MON/XZ_CHECK", $sformatf("Signal %s contains X's or Z's", `"name`"))
+		`uvm_error({MESSAGE_TAG, "AXIS_MON/XZ_CHECK"}, $sformatf("Signal %s contains X's or Z's", `"name`"))
 
 `endif

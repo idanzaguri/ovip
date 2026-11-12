@@ -32,8 +32,10 @@
 	} ovip_ace_domain_t;
 
 	// AxBAR[1:0] encoding -- spec D3.1.2 Table D3-5. Barriers are deprecated
-	// in ACE5 and not supported in this VIP version; declared for completeness
-	// and so check_config can flag any non-normal value.
+	// in ACE5 and not supported in this VIP version; declared for completeness.
+	// Nothing checks the value: ovip_ace_trans::c_no_barriers keeps a
+	// randomized item at 0b00, and an item with another value is driven as it
+	// is.
 	typedef enum bit [1:0] {
 		OVIP_ACE_BAR_NORMAL_RESPECT = 2'b00,
 		OVIP_ACE_BAR_MEMORY_BARRIER = 2'b01,

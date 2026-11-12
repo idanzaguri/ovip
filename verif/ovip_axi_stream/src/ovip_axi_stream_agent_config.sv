@@ -1,6 +1,11 @@
 `ifndef OVIP_AXI_STREAM_AGENT_CONFIG__SV
 `define OVIP_AXI_STREAM_AGENT_CONFIG__SV
 
+// The configuration of one ovip_axi_stream agent: its side (transmitter or
+// receiver), the protocol issue, which optional signals are live and their
+// widths, the monitor options and the receiver's default TREADY pattern. The
+// agent calls check_config() in its build_phase. The README, "Signal model"
+// and "TREADY patterns", explains the fields that shape the wire.
 class ovip_axi_stream_agent_config extends uvm_object;
 
 	uvm_active_passive_enum     is_active;
@@ -26,6 +31,9 @@ class ovip_axi_stream_agent_config extends uvm_object;
 	// ARESETn) are always live. Receiver-only agents naturally ignore the
 	// transmitter-driven enables for everything except TREADY-pattern
 	// generation.
+	// tready_en = 0: no TREADY on the interface. The transmitter and the
+	// monitor take it as HIGH (spec section 3.1.1), so every cycle with TVALID
+	// HIGH is a transfer, and the receiver does not drive the wire.
 	bit tready_en = 1; // recommended present even if the receiver never back-pressures
 	bit tstrb_en  = 0;
 	bit tkeep_en  = 0;
@@ -34,23 +42,36 @@ class ovip_axi_stream_agent_config extends uvm_object;
 	bit tdest_en  = 0;
 	bit tuser_en  = 0;
 	bit twakeup_en = 0; // AXI5-Stream only
-	bit parity_en  = 0; // AXI5-Stream only; turns on TVALIDCHK/TREADYCHK/TDATACHK/... checks
+	bit parity_en  = 0; // AXI5-Stream only. No effect in this version: the interface has no check signals and nothing checks parity
 
 	// Continuous_Packets profile (spec section 3.3): packets cannot interleave,
-	// no null bytes within a packet, TSTRB must not be present. The monitor
-	// enforces these when this is set.
+	// no null bytes within a packet, TSTRB must not be present. When this is
+	// set, check_config reports tstrb_en, and the monitor reports a transfer of
+	// another packet after one with TLAST LOW (AXIS_MON/PKT_SCOPE) and, with
+	// TKEEP present, a null byte within a packet (AXIS_MON/NULL_BYTE). The
+	// master driver does not check its items against the profile.
 	bit continuous_packets = 0;
 
-	// Initiate every idle cycle with X-free defaults (helps adjacent assertions
-	// and waveform readability). On by default.
+	// The monitor's X/Z check and stability check look at TDATA on the lanes
+	// of data bytes only (TKEEP HIGH and TSTRB HIGH, where an absent TKEEP
+	// counts as HIGH and an absent TSTRB as TKEEP), and at TUSER on the lanes
+	// of data bytes and position bytes (TKEEP HIGH). The TDATA of a position
+	// byte or a null byte is not valid (spec section 2.5.2) and the TUSER bits
+	// of a null byte are not transferred (spec section 2.9), so a transmitter
+	// may leave them X, or change them while the beat waits. Set this to 1 to
+	// check every lane inside the configured widths.
+	bit check_undefined_data_lanes = 0;
+
+	// No effect in this version: no driver reads it. Meant to drive X-free
+	// values in every idle cycle.
 	bit drive_reset_values_when_idle = 1;
 
-	// Cap on the number of outstanding-but-unfinished transactions the monitor
-	// will hold mid-packet before flagging an error. 0 = unlimited.
+	// No effect in this version: the monitor does not read it and has no cap
+	// on open packets. Meant as a cap on the packets the monitor holds open.
 	int num_outstanding_transactions = 0;
 
-	// Soft per-transaction timeout used by the monitor's incomplete-trans
-	// watchdog (microseconds; 0 = no watchdog).
+	// No effect in this version: the monitor does not read it and has no
+	// watchdog. Meant as a timeout for an open packet, in microseconds.
 	int tr_timeout_us = 50;
 
 	// Receiver-side default TREADY pattern. Same struct shape as ovip_axi's

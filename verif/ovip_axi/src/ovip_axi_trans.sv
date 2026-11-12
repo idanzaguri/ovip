@@ -26,6 +26,8 @@ class ovip_axi_trans extends uvm_sequence_item;
 	bit valid_address_phase;                   // Flag indicating whether the address phase of the transaction is valid
 	bit got_last_beat;                         // Flag indicating whether the last beat of the transaction has been received
 	bit transaction_finished;                  // Flag indicating whether the entire transaction has finished
+	bit dropped_by_reset;                      // Master sequences: 1 when a reset ended the item before its transaction completed. The master driver
+	                                           // gave it back with put(), and its response fields are not valid. 0 on every item that completed
 	uvm_event#(uvm_object) completed_ev;       // Triggered by the monitor when the transaction completes (used by the timeout watcher)
 	int burst_index;                           // Index of the current burst for the driver
 	bit is_narrow_transfer;
@@ -42,11 +44,12 @@ class ovip_axi_trans extends uvm_sequence_item;
 	// It disables some checks performed before driving the transaction.
 	bit trust_me_i_am_an_engineer;
 
-	// All times are captured at sampling (i.e., valid && ready).
-	time addr_phase_time;
-	time data_phase_begin_time;
-	time data_phase_time;
-	time resp_phase_time;
+	// All times are captured at sampling (i.e., valid && ready), from $realtime:
+	// in ns, the time unit of ovip_axi_pkg, with the fraction of a ns.
+	realtime addr_phase_time;
+	realtime data_phase_begin_time;
+	realtime data_phase_time;
+	realtime resp_phase_time;
 
 
 	//
@@ -165,6 +168,7 @@ class ovip_axi_trans extends uvm_sequence_item;
 		got_last_beat = 0;
 		valid_address_phase = 0;
 		transaction_finished = 0;
+		dropped_by_reset = 0;
 		is_narrow_transfer = 0;
 		data_phase_started = 0;
 		monitor_error = 0;
@@ -230,6 +234,7 @@ class ovip_axi_trans extends uvm_sequence_item;
 		valid_address_phase = tr.valid_address_phase;
 		got_last_beat = tr.got_last_beat;
 		transaction_finished = tr.transaction_finished;
+		dropped_by_reset = tr.dropped_by_reset;
 		is_narrow_transfer = tr.is_narrow_transfer;
 		monitor_error = tr.monitor_error;
 		data_phase_started = tr.data_phase_started;
@@ -337,7 +342,7 @@ class ovip_axi_trans extends uvm_sequence_item;
 	// One compact, fixed-column line for the transaction log file (see
 	// ovip_axi_trans_logger). The four trailing columns are the phase
 	// timestamps (address / first data beat / last data beat / response),
-	// formatted with %t so they honour the logger's $timeformat. Subclasses
+	// in ns with three decimals (17.500ns), whatever $timeformat is. Subclasses
 	// (e.g. ovip_ace_trans) call super and append their own columns.
 	virtual function string log_line();
 		string dir_s = (tr_type == OVIP_AXI_WRITE_TRANS) ? "WR" : "RD";
@@ -365,8 +370,8 @@ class ovip_axi_trans extends uvm_sequence_item;
 			return $sformatf("%-3s %-6s %-12s %-6d %-5s %-6s %-7s %-11s %-11s %-11s %-11s beats=%s",
 				dir_s, $sformatf("0x%0x", id), $sformatf("0x%08x", addr), len + 1,
 				$sformatf("%0dB", 1 << size), burst_s, resp_s,
-				$sformatf("%0t", addr_phase_time), $sformatf("%0t", data_phase_begin_time),
-				$sformatf("%0t", data_phase_time), $sformatf("%0t", resp_phase_time), beats);
+				$sformatf("%0.3fns", addr_phase_time), $sformatf("%0.3fns", data_phase_begin_time),
+				$sformatf("%0.3fns", data_phase_time), $sformatf("%0.3fns", resp_phase_time), beats);
 		end
 		return $sformatf("%-3s %-6s %-12s %-6d %-5s %-6s %-7s %-11s %-11s %-11s %-11s",
 			dir_s,
@@ -376,10 +381,10 @@ class ovip_axi_trans extends uvm_sequence_item;
 			$sformatf("%0dB", 1 << size),
 			burst_s,
 			resp_s,
-			$sformatf("%0t", addr_phase_time),
-			$sformatf("%0t", data_phase_begin_time),
-			$sformatf("%0t", data_phase_time),
-			$sformatf("%0t", resp_phase_time));
+			$sformatf("%0.3fns", addr_phase_time),
+			$sformatf("%0.3fns", data_phase_begin_time),
+			$sformatf("%0.3fns", data_phase_time),
+			$sformatf("%0.3fns", resp_phase_time));
 	endfunction : log_line
 
 	// Header row whose columns line up with log_line(). Subclasses append theirs.

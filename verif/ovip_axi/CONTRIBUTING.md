@@ -76,13 +76,6 @@ A few open items that are well-scoped for a new contributor:
   boundary. Useful crosses: burst type × size, burst type × bus_width,
   resp × tr_type. Keep covergroups off by default -- they carry real simulation
   cost.
-- **WRAP burst support** -- currently a `uvm_fatal`; both the driver/monitor
-  implementation and the docs are missing. This work also covers byte-lane
-  auto-alignment for WRAP (the address wraps mid-burst, so the lane offset
-  per beat is non-trivial). While you're in this area, please also audit the
-  one open FIXED corner -- `burst_size == bus_width` with
-  `auto_byte_lanes_alignment = 1` -- which is documented as a known limitation
-  in the README's "Byte-Lane Alignment" section.
 - **Random values where AXI leaves them undefined, and a slave that waits for
   WVALID**: four switches, all off by default. OVIP drives zero on the lanes
   AXI leaves undefined, and zero or the last value on a channel while its VALID
@@ -107,5 +100,18 @@ A few open items that are well-scoped for a new contributor:
      WVALID"). It exposes a master that waits for AWREADY before WVALID:
      FV-3's slave NIs, and OVIP's own `DATA_START_EV_ADDR_SAMPLED`. Such a
      master hangs, so a watchdog or the transaction timeout reports it.
+- **Exclusive access.** `axlock` is driven and sampled, and
+  `OVIP_AXI_RESP_EXOKAY` is a response value, but nothing pairs an
+  exclusive read with its exclusive write: the slave has no exclusive
+  monitor.
+- **AXI3 locked access.** AxLOCK is one bit on `ovip_axi_agent_if` and in
+  `ovip_axi_trans` (`axlock`), as in AXI4. On AXI3 it has two bits, so a
+  locked access (AxLOCK = 2'b10) can not be driven or seen.
+- **WUSER and RUSER per beat.** `ovip_axi_trans` has one `wuser` and one
+  `ruser` for the whole burst: the drivers put the same value on every
+  beat, and the monitor keeps one value.
+- **The low-power interface** (CSYSREQ, CSYSACK, CACTIVE) is not on
+  `ovip_axi_agent_if`.
+
 See [CHANGELOG.md](CHANGELOG.md) "Known limitations" for the full list of
 gaps tracked against this release.

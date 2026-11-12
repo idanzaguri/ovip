@@ -1,7 +1,8 @@
 # Coherent-loopback example for the ovip_ace VIP.
 #
-# NOTE: ovip_ace is AI-generated and unverified. This example is known to
-# COMPILE; a clean simulation run has not been confirmed by a human.
+# NOTE: ovip_ace is AI-generated and not verified by a human. This example
+# compiles and runs to UVM_ERROR : 0 on Questa (tools/compile_check.py
+# --stages all runs it).
 #
 # Usage:
 #   make              # default = modelsim

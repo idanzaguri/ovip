@@ -1,6 +1,11 @@
 `ifndef OVIP_AXI_STREAM_PKG__SV
 `define OVIP_AXI_STREAM_PKG__SV
 
+// The ovip_axi_stream package, the file that ovip_axi_stream.f compiles. The
+// defines, the macros and the interface ovip_axi_stream_agent_if are
+// included before the package, outside it; every class is included inside
+// it, each after the classes it uses.
+
 `include "ovip_axi_stream_defines.sv"
 `include "ovip_axi_stream_macros.sv"
 `include "ovip_axi_stream_agent_if.sv"

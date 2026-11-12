@@ -22,8 +22,6 @@
 //     memory-backed read/write loopback for you. If left null, a subclass
 //     MUST override `populate_data_from_mem` and `write_transaction_to_mem`
 //     (otherwise the base fatals with a clear message at the first request).
-//   - For FIXED and WRAP bursts, `burst_size <= memory_word_size` (one beat
-//     per memory word -- enforced by uvm_fatal in the write/read helpers).
 
 class ovip_axi_base_slave_sequence extends uvm_sequence#(ovip_axi_trans);
 
@@ -117,14 +115,56 @@ class ovip_axi_base_slave_sequence extends uvm_sequence#(ovip_axi_trans);
 	// backing (register slave, traffic-shaping stub, ...) skips memory setup
 	// here and overrides `populate_data_from_mem` / `write_transaction_to_mem`
 	// with its own read/write logic.
-	virtual task pre_body();
+	// body() calls it first, so the sequence also works when it is started
+	// with call_pre_post = 0, as the uvm_do macros start a child sequence. A
+	// subclass whose body() does not call super.body() gets it from
+	// pre_body(), or calls it itself.
+	virtual function void setup_mem_backing();
 		if(mem == null) return;
 		memory_word_size = mem.get_word_size();
 		virt_mem_trans = ovip_axi_trans::type_id::create("virt_mem_trans");
 		virt_mem_trans.size      = ovip_axi_size_t'($clog2(memory_word_size));
 		virt_mem_trans.bus_width = ovip_axi_bus_width_t'(memory_word_size);
+	endfunction : setup_mem_backing
+
+	virtual task pre_body();
+		setup_mem_backing();
 	endtask : pre_body
 	
+	// One memory word, to and from `mem`. request_in_range() tests the bytes
+	// of the burst, and ovip_mem::write() and read() act on a whole word. A
+	// valid range of the memory may start or end inside a word. Such a word
+	// goes byte by byte through the bytestream functions of the memory, which
+	// test bytes: a write takes its strobed bytes, a read the valid bytes of
+	// the word (the others read as zero and are not part of the burst).
+	virtual function void write_word_to_mem(ovip_axi_addr_t addr, ovip_axi_data_t data, ovip_axi_strb_t strb);
+		ovip_bytestream one_byte;
+		if(mem.is_valid(addr, memory_word_size))
+		begin
+			mem.write(addr, data, strb);
+			return;
+		end
+		for(int ii = 0; ii < memory_word_size; ii++)
+			if(strb[ii])
+			begin
+				one_byte = {data[ii*8 +: 8]};
+				mem.write_bytestream(addr + ii, one_byte);
+			end
+	endfunction : write_word_to_mem
+
+	virtual function ovip_axi_data_t read_word_from_mem(ovip_axi_addr_t addr);
+		ovip_axi_data_t data = '0;
+		ovip_bytestream one_byte;
+		if(mem.is_valid(addr, memory_word_size)) return mem.read(addr);
+		for(int ii = 0; ii < memory_word_size; ii++)
+			if(mem.is_valid(addr + ii))
+			begin
+				one_byte = mem.read_bytestream(addr + ii, 1);
+				data[ii*8 +: 8] = one_byte[0];
+			end
+		return data;
+	endfunction : read_word_from_mem
+
 	function void write_incr_burst_transaction_to_mem(ovip_axi_trans tr);
 		int burst_size = 1<<tr.size;
 		virt_mem_trans.addr = tr.addr - (tr.addr % memory_word_size); // aligned address to memory sturcture
@@ -151,7 +191,7 @@ class ovip_axi_base_slave_sequence extends uvm_sequence#(ovip_axi_trans);
 
 		foreach(virt_mem_trans.data_beats[ii])
 		begin
-			mem.write(virt_mem_trans.addr, virt_mem_trans.data_beats[ii], virt_mem_trans.strb_beats[ii]);
+			write_word_to_mem(virt_mem_trans.addr, virt_mem_trans.data_beats[ii], virt_mem_trans.strb_beats[ii]);
 			if(tr.burst == OVIP_AXI_BURST_INCR)
 				virt_mem_trans.addr += memory_word_size;
 		end
@@ -309,7 +349,7 @@ class ovip_axi_base_slave_sequence extends uvm_sequence#(ovip_axi_trans);
 
 		for(int ii = 0; ii < num_memory_word_reads; ii++)
 		begin
-			virt_mem_trans.data_beats.push_back(mem.read(memory_addr));
+			virt_mem_trans.data_beats.push_back(read_word_from_mem(memory_addr));
 			memory_addr += memory_word_size;
 		end
 
@@ -430,6 +470,7 @@ class ovip_axi_base_slave_sequence extends uvm_sequence#(ovip_axi_trans);
 	//   5. finish_item(req) -- this must be reached in ZERO simulation time
 	//      from the start_item above. Do not insert delays here.
 	virtual task body();
+		setup_mem_backing();
 		forever
 		begin
 			p_sequencer.response_req_port.get(req);

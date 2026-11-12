@@ -40,20 +40,22 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 	bit monitor_error;
 	int burst_index;
 
-	// Snapshot of the agent's bus width in bytes (= cfg.tdata_width). The
-	// monitor / driver fills this from cfg so per-beat decoders can iterate
-	// only over the live byte lanes.
+	// Snapshot of the agent's bus width in bytes (= cfg.tdata_width). Only
+	// the monitor fills it, from cfg, so per-beat decoders can iterate only
+	// over the live byte lanes. The drivers do not read or set it.
 	int bus_width;
 
-	// Snapshot of the per-byte TUSER size, also from cfg. Used by
-	// get_tuser_for_byte() and by the master driver when packing user_beats.
+	// Snapshot of the per-byte TUSER size (= cfg.tuser_bits_per_byte). Only
+	// the monitor fills it. Used by get_tuser_for_byte().
 	int tuser_bits_per_byte;
 
-	// Observability timestamps, all sampled at handshake (valid && ready) and
-	// at the moment tvalid first goes HIGH.
-	time tvalid_assert_time;
-	time first_beat_time;
-	time last_beat_time;
+	// Timestamps, filled by the monitor from $realtime. tvalid_assert_time
+	// and first_beat_time are both the time of the first handshake (TVALID
+	// and TREADY HIGH) of the packet, not of the TVALID rise. last_beat_time
+	// is the time of the last handshake of the packet.
+	realtime tvalid_assert_time;
+	realtime first_beat_time;
+	realtime last_beat_time;
 
 	// ------------------------------------------------------------------------
 	// Timing knobs (rand, soft-bounded).
@@ -69,11 +71,6 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 	// Gap, in clocks, the driver inserts after this transaction before
 	// fetching the next item.
 	rand int unsigned delay_until_next_trans;
-
-	// Optional per-transaction TREADY override. Non-empty `cycles` replaces
-	// the receiver's current pattern when this trans is processed; leave
-	// `cycles` empty (size 0) to keep the existing pattern.
-	ovip_axi_stream_ready_pattern_t tready_pattern;
 
 	// ------------------------------------------------------------------------
 	// Constraints.
@@ -94,6 +91,15 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 		soft strb_beats.size() == data_beats.size();
 		soft user_beats.size() == data_beats.size();
 		soft delay_between_beats.size() == data_beats.size();
+	}
+
+	// No TSTRB bit is set where the TKEEP bit of the same beat is clear: TKEEP
+	// LOW with TSTRB HIGH is the reserved combination (spec section 2.5.3,
+	// Table 2-3).
+	constraint c_no_reserved_byte_qualifier {
+		foreach(strb_beats[i])
+			if(i < keep_beats.size())
+				(strb_beats[i] & ~keep_beats[i]) == 0;
 	}
 
 	// Non-negative timing knobs (the driver counts them down with `repeat`).
@@ -130,8 +136,9 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 	//   - TKEEP absent  -> every byte is transported (keep_beats[*][b] == 1)
 	//   - TSTRB absent  -> data/position == TKEEP (spec section 3.1.2)
 	//
-	// `bus_width` (in bytes) must be set before calling -- the monitor and
-	// drivers populate it from cfg.tdata_width.
+	// `bus_width` (in bytes) must be set before calling. The monitor sets it
+	// from cfg.tdata_width on the packets it publishes. On an item that a
+	// sequence builds, the sequence sets it.
 	virtual function ovip_bytestream get_data_bytes(bit include_position_bytes = 0);
 		ovip_bytestream result;
 		if(bus_width == 0)
@@ -192,7 +199,6 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 		min_delay_between_beats = tr.min_delay_between_beats;
 		max_delay_between_beats = tr.max_delay_between_beats;
 		delay_until_next_trans  = tr.delay_until_next_trans;
-		tready_pattern          = tr.tready_pattern;
 	endfunction : do_copy
 
 
@@ -201,14 +207,21 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 	// timestamps, and timing knobs are intentionally ignored, since two
 	// transactions can be functionally identical on the wire while differing
 	// in any of those.
+	//
+	// keep_beats, strb_beats and user_beats are compared only when both sides
+	// filled them. The monitor fills each of them only when its signal is on
+	// the interface, and a sequence may fill a queue for a signal that is
+	// absent or leave out one that is present, so a queue that is empty on one
+	// side says nothing. `wakeup` is a bit and has no empty value: the monitor
+	// leaves it 0 without TWAKEUP, so leave it 0 in an expected item then.
 	virtual function bit do_compare(uvm_object rhs, uvm_comparer comparer);
 		ovip_axi_stream_trans tr;
 		if(!$cast(tr, rhs)) return 0;
 		return super.do_compare(rhs, comparer)
 			&& data_beats == tr.data_beats
-			&& keep_beats == tr.keep_beats
-			&& strb_beats == tr.strb_beats
-			&& user_beats == tr.user_beats
+			&& (keep_beats.size() == 0 || tr.keep_beats.size() == 0 || keep_beats == tr.keep_beats)
+			&& (strb_beats.size() == 0 || tr.strb_beats.size() == 0 || strb_beats == tr.strb_beats)
+			&& (user_beats.size() == 0 || tr.user_beats.size() == 0 || user_beats == tr.user_beats)
 			&& id         == tr.id
 			&& dest       == tr.dest
 			&& wakeup     == tr.wakeup;
@@ -225,9 +238,12 @@ class ovip_axi_stream_trans extends uvm_sequence_item;
 		if(dest       != rhs.dest      ) s = {s, $sformatf("  dest:       expected=0x%0h   actual=0x%0h\n",  dest,      rhs.dest)};
 		if(wakeup     != rhs.wakeup    ) s = {s, $sformatf("  wakeup:     expected=%0b     actual=%0b\n",    wakeup,    rhs.wakeup)};
 		if(data_beats != rhs.data_beats) s = {s, $sformatf("  data_beats: expected=%p      actual=%p\n",     data_beats, rhs.data_beats)};
-		if(keep_beats != rhs.keep_beats) s = {s, $sformatf("  keep_beats: expected=%p      actual=%p\n",     keep_beats, rhs.keep_beats)};
-		if(strb_beats != rhs.strb_beats) s = {s, $sformatf("  strb_beats: expected=%p      actual=%p\n",     strb_beats, rhs.strb_beats)};
-		if(user_beats != rhs.user_beats) s = {s, $sformatf("  user_beats: expected=%p      actual=%p\n",     user_beats, rhs.user_beats)};
+		if(keep_beats.size() && rhs.keep_beats.size() && keep_beats != rhs.keep_beats)
+		                                 s = {s, $sformatf("  keep_beats: expected=%p      actual=%p\n",     keep_beats, rhs.keep_beats)};
+		if(strb_beats.size() && rhs.strb_beats.size() && strb_beats != rhs.strb_beats)
+		                                 s = {s, $sformatf("  strb_beats: expected=%p      actual=%p\n",     strb_beats, rhs.strb_beats)};
+		if(user_beats.size() && rhs.user_beats.size() && user_beats != rhs.user_beats)
+		                                 s = {s, $sformatf("  user_beats: expected=%p      actual=%p\n",     user_beats, rhs.user_beats)};
 		return s;
 	endfunction : diff
 

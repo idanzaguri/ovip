@@ -33,9 +33,6 @@ class ovip_axi_trans_logger extends uvm_subscriber #(ovip_axi_trans);
 	protected static int _combined_fd[string];
 	protected static int _combined_refs[string];
 
-	// Set a readable %t format (nanoseconds) once, for the timestamp columns.
-	protected static bit _timeformat_set = 0;
-
 	function new(string name = "ovip_axi_trans_logger", uvm_component parent = null);
 		super.new(name, parent);
 	endfunction
@@ -45,9 +42,10 @@ class ovip_axi_trans_logger extends uvm_subscriber #(ovip_axi_trans);
 	extern virtual function void final_phase(uvm_phase phase);
 
 	// Build the full line: completion time + agent label + the trans's columns.
+	// The time is in ns with three decimals, like the columns of log_line().
 	protected virtual function string format_line(ovip_axi_trans t);
 		string body = (format == OVIP_AXI_TRANS_LOG_RAW) ? t.convert2string() : t.log_line();
-		return $sformatf("%-11s %-9s %s", $sformatf("%0t", $time), label, body);
+		return $sformatf("%-11s %-9s %s", $sformatf("%0.3fns", $realtime), label, body);
 	endfunction : format_line
 
 endclass : ovip_axi_trans_logger
@@ -59,13 +57,6 @@ function void ovip_axi_trans_logger::start_of_simulation_phase(uvm_phase phase);
 	ovip_axi_trans hdr = ovip_axi_trans::type_id::create("log_hdr");
 	string header = $sformatf("%-11s %-9s %s", "end_time", "agent", hdr.log_header());
 	super.start_of_simulation_phase(phase);
-
-	// Human-readable nanosecond timestamps for the %t columns (set once).
-	if(!_timeformat_set)
-	begin
-		$timeformat(-9, 3, "ns", 0);
-		_timeformat_set = 1;
-	end
 
 	if(file_name != "")
 	begin

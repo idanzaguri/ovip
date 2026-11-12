@@ -24,8 +24,11 @@
 
 // Soft-default caps used by ovip_apb_trans constraints. These bound the
 // default-randomized range of each timing knob so a bare `tr.randomize()`
-// doesn't generate huge gaps out of the box. Override per call via
-// `with { ... }`, or globally with +define+<name>=<n>.
+// doesn't generate huge gaps. They bound nothing else: the item does not
+// know the agent's cfg, so a sequence that randomizes it constrains addr,
+// wdata and strb to the agent's widths itself (README, "Writing
+// sequences"). Override the caps per call via `with { ... }`, or globally
+// with +define+<name>=<n>.
 `ifndef OVIP_APB_WAIT_STATES_MAX
 	`define OVIP_APB_WAIT_STATES_MAX 15
 `endif

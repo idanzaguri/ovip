@@ -18,6 +18,11 @@ virtual class ovip_axi_base_driver #(type IF_T = virtual ovip_axi_agent_if) exte
 	// Empty hook subclasses override to fork additional per-channel branches
 	virtual task extra_forks(); endtask
 
+	// Called after a reset killed the driver's threads and before the driver
+	// waits for the reset release. The master driver gives back the items
+	// that the reset ended. Empty here.
+	virtual task return_dropped_items(); endtask
+
 	pure virtual task raddr_phase_driver(); // initiator
 	pure virtual task rdata_phase_driver(); // target
 
@@ -65,6 +70,7 @@ task ovip_axi_base_driver::run_phase(uvm_phase phase);
 	begin
 		reset_internal_state();
 		drive_reset_values();
+		return_dropped_items();
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn); // Waiting for sync reset de-assertion
 		`OVIP_BEGIN_FIRST_OF
 			rst_monitor();

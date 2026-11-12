@@ -12,14 +12,19 @@
 //   - R capture picks up RRESP[3:2] (IsShared, PassDirty) (sample_read_data).
 //   - A snoop-channel monitor reconstructs AC -> CR (-> CD) snoop transactions
 //     and broadcasts them on snoop_analysis_port (ACE profile only).
-//   - A RACK/WACK sequencing monitor enforces the D6.2 acknowledge rules.
+//   - A RACK/WACK monitor counts the acknowledges against the completed
+//     transactions (D3.3, D3.5): an acknowledge with none owed is an error,
+//     and one that is still owed when the test ends is reported.
 //   - Inline protocol checks cover the legal AxSNOOP/AxDOMAIN envelope (D3.1),
-//     the cache-line-size addressing rules (D3.1.6), the ACE-Lite permitted
-//     subset (D11), and the snoop-response consistency rules (D3.7 / D5.1).
+//     the cache-line-size addressing rules for reads (D3.1.6), the ACE-Lite
+//     permitted subset (D11), and the snoop-response consistency rules (D3.7,
+//     D13.2.5). The README lists each check and what is not checked.
 //
 // Scope note (v0.1): the snoop-channel monitor assumes a single outstanding
-// snoop at a time (AC -> CR -> CD in order), matching the ovip_ace slave
-// driver's one-at-a-time snoop_request_driver.
+// snoop at a time (the AC handshake, then its CR handshake and its CD beats in
+// any order), matching the ovip_ace slave driver's one-at-a-time
+// snoop_request_driver. An AC handshake before the previous snoop is complete
+// is not seen.
 
 class ovip_ace_monitor extends ovip_axi_monitor #(virtual ovip_ace_agent_if);
 
@@ -34,6 +39,11 @@ class ovip_ace_monitor extends ovip_axi_monitor #(virtual ovip_ace_agent_if);
 	ovip_ace_acaddr_t ACADDR_MASK;
 	ovip_ace_cddata_t CDDATA_MASK;
 
+	// Completed read / write transactions that the master has not acknowledged
+	// with RACK / WACK yet (see rack_wack_sequencing_monitor).
+	protected int unsigned owed_rack;
+	protected int unsigned owed_wack;
+
 	`uvm_component_utils(ovip_ace_monitor)
 
 	function new(string name = "ovip_ace_monitor", uvm_component parent);
@@ -42,6 +52,8 @@ class ovip_ace_monitor extends ovip_axi_monitor #(virtual ovip_ace_agent_if);
 
 	extern virtual function void build_phase(uvm_phase phase);
 	extern virtual task run_phase(uvm_phase phase);
+	extern virtual function void report_phase(uvm_phase phase);
+	extern virtual task rst_monitor();
 
 	// Produce ovip_ace_trans instead of ovip_axi_trans for every reconstructed
 	// transaction, so the ACE fields ride along and subscribers can $cast.
@@ -94,10 +106,29 @@ task ovip_ace_monitor::run_phase(uvm_phase phase);
 endtask : run_phase
 
 
+task ovip_ace_monitor::rst_monitor();
+	super.rst_monitor();
+	// A reset drops the transactions whose acknowledge was owed.
+	owed_rack = 0;
+	owed_wack = 0;
+endtask : rst_monitor
+
+
+function void ovip_ace_monitor::report_phase(uvm_phase phase);
+	super.report_phase(phase);
+	if(owed_rack != 0)
+		`uvm_error({MESSAGE_TAG, "ACE_MON/RACK"}, $sformatf("%0d completed read transaction(s) got no RACK before the test ended (D3.3)", owed_rack))
+	if(owed_wack != 0)
+		`uvm_error({MESSAGE_TAG, "ACE_MON/WACK"}, $sformatf("%0d completed write transaction(s) got no WACK before the test ended (D3.5)", owed_wack))
+endfunction : report_phase
+
+
 function ovip_axi_trans ovip_ace_monitor::new_transaction();
 	ovip_ace_trans tr = ovip_ace_trans::type_id::create($sformatf("ace_tr_%0d", ++transaction_counter));
 	tr.bus_width = cfg.bus_width;
-	analysis_port_cont.write(tr);
+	// analysis_port_cont gets the item from send_new_transaction(), when its
+	// first phase is sampled
+	new_tr_for_analysis_port_cont = tr;
 	return tr;
 endfunction : new_transaction
 
@@ -156,19 +187,14 @@ endfunction : sample_read_data
 task ovip_ace_monitor::extra_forks();
 	fork
 		ace_handshake_signals_xz_monitor();
-		// RACK/WACK and the snoop channels only exist in full ACE.
-		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE)
-		begin
-			rack_wack_sequencing_monitor();
-			snoop_channel_monitor();
-		end
+		// RACK/WACK and the snoop channels only exist in full ACE. Each task
+		// runs forever, so each one is a fork branch of its own.
+		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) rack_wack_sequencing_monitor();
+		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) snoop_channel_monitor();
 		`ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
-			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE)
-			begin
-				ac_channel_signal_stability_check();
-				cr_channel_signal_stability_check();
-				cd_channel_signal_stability_check();
-			end
+			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) ac_channel_signal_stability_check();
+			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) cr_channel_signal_stability_check();
+			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) cd_channel_signal_stability_check();
 		`endif
 	join_none
 endtask : extra_forks
@@ -178,6 +204,8 @@ task ovip_ace_monitor::snoop_channel_monitor();
 	forever
 	begin
 		ovip_ace_trans snoop_tr;
+		bit got_cr;
+		bit got_cdlast;
 
 		// AC handshake -- a new snoop request from the interconnect.
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.acvalid && vif.monitor_cb.acready);
@@ -188,24 +216,34 @@ task ovip_ace_monitor::snoop_channel_monitor();
 		snoop_tr.acsnoop_code = vif.monitor_cb.acsnoop;
 		snoop_tr.acprot       = vif.monitor_cb.acprot;
 
-		// CR handshake -- the master's snoop response.
-		@(vif.monitor_cb iff vif.monitor_cb.crvalid && vif.monitor_cb.crready);
-		snoop_tr.snoop_resp = '{
-		    was_unique:    vif.monitor_cb.crresp[4],
-		    is_shared:     vif.monitor_cb.crresp[3],
-		    pass_dirty:    vif.monitor_cb.crresp[2],
-		    error:         vif.monitor_cb.crresp[1],
-		    data_transfer: vif.monitor_cb.crresp[0]
-		};
-
-		// CD -- optional snoop data, only when CRRESP.DataTransfer is set.
-		if(snoop_tr.snoop_resp.data_transfer)
+		// The CR handshake and the CD beats of this snoop. The master may
+		// send CD before, with or after CR (D3.9), so every edge takes both.
+		// The snoop ends with the CR handshake, or with the CDLAST beat when
+		// CRRESP.DataTransfer is set.
+		got_cr     = 0;
+		got_cdlast = 0;
+		while(!got_cr || (snoop_tr.snoop_resp.data_transfer && !got_cdlast))
 		begin
-			forever
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn);
+
+			// CR handshake: the master's snoop response.
+			if(!got_cr && vif.monitor_cb.crvalid && vif.monitor_cb.crready)
 			begin
-				@(vif.monitor_cb iff vif.monitor_cb.cdvalid && vif.monitor_cb.cdready);
+				snoop_tr.snoop_resp = '{
+				    was_unique:    vif.monitor_cb.crresp[4],
+				    is_shared:     vif.monitor_cb.crresp[3],
+				    pass_dirty:    vif.monitor_cb.crresp[2],
+				    error:         vif.monitor_cb.crresp[1],
+				    data_transfer: vif.monitor_cb.crresp[0]
+				};
+				got_cr = 1;
+			end
+
+			// CD handshake: one beat of snoop data.
+			if(!got_cdlast && vif.monitor_cb.cdvalid && vif.monitor_cb.cdready)
+			begin
 				snoop_tr.snoop_data_beats.push_back(vif.monitor_cb.cddata & CDDATA_MASK);
-				if(vif.monitor_cb.cdlast) break;
+				got_cdlast = vif.monitor_cb.cdlast;
 			end
 		end
 
@@ -217,43 +255,35 @@ endtask : snoop_channel_monitor
 
 
 task ovip_ace_monitor::rack_wack_sequencing_monitor();
-	// D6.2: the master issues exactly one RACK per completed read (after the
-	// RLAST beat is accepted) and one WACK per completed write (after BRESP is
-	// accepted). RACK/WACK are single-cycle. We track how many acknowledges are
-	// owed and flag a pulse that arrives with none pending, or that stays high
-	// for more than one cycle.
-	int unsigned owed_rack = 0;
-	int unsigned owed_wack = 0;
-	fork
-		forever begin
-			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.rvalid && vif.monitor_cb.rready && vif.monitor_cb.rlast);
-			owed_rack++;
-		end
-		forever begin
-			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.bvalid && vif.monitor_cb.bready);
-			owed_wack++;
-		end
-		forever begin
-			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.rack);
+	// D3.3 / D3.5 / D6.2.1: the master sends one RACK for each completed read
+	// (after the RLAST beat is accepted) and one WACK for each completed write
+	// (after BRESP is accepted). Each cycle with RACK or WACK HIGH is one
+	// acknowledge, so the signal may stay HIGH while acknowledges are owed.
+	// An acknowledge with none owed is an error. The earliest cycle for an
+	// acknowledge is the one after its handshake, so every edge takes the
+	// acknowledge first and counts a new handshake after it. What is still
+	// owed when the test ends is reported in report_phase.
+	owed_rack = 0;
+	owed_wack = 0;
+	forever begin
+		@(vif.monitor_cb iff vif.monitor_cb.aresetn);
+		if(vif.monitor_cb.rack)
+		begin
 			if(owed_rack == 0)
 				`uvm_error({MESSAGE_TAG, "ACE_MON/RACK"}, "RACK asserted with no completed read transaction awaiting acknowledge (D6.2)")
 			else
 				owed_rack--;
-			@(vif.monitor_cb);
-			if(vif.monitor_cb.rack)
-				`uvm_error({MESSAGE_TAG, "ACE_MON/RACK"}, "RACK must be asserted for exactly one cycle (D3.3)")
 		end
-		forever begin
-			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.wack);
+		if(vif.monitor_cb.wack)
+		begin
 			if(owed_wack == 0)
 				`uvm_error({MESSAGE_TAG, "ACE_MON/WACK"}, "WACK asserted with no completed write transaction awaiting acknowledge (D6.2)")
 			else
 				owed_wack--;
-			@(vif.monitor_cb);
-			if(vif.monitor_cb.wack)
-				`uvm_error({MESSAGE_TAG, "ACE_MON/WACK"}, "WACK must be asserted for exactly one cycle (D3.5)")
 		end
-	join
+		if(vif.monitor_cb.rvalid && vif.monitor_cb.rready && vif.monitor_cb.rlast) owed_rack++;
+		if(vif.monitor_cb.bvalid && vif.monitor_cb.bready) owed_wack++;
+	end
 endtask : rack_wack_sequencing_monitor
 
 
@@ -277,15 +307,17 @@ endtask : ace_handshake_signals_xz_monitor
 `ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
 task ovip_ace_monitor::ac_channel_signal_stability_check();
 	// D3.6.2: ACADDR/ACSNOOP/ACPROT must be stable, and ACVALID must stay
-	// asserted, from ACVALID HIGH until the ACREADY handshake.
+	// asserted, from ACVALID HIGH until the ACREADY handshake. ACADDR is
+	// compared over cfg.acaddr_width bits. A bit that holds X or Z in both
+	// cycles is not a change.
 	forever
 	begin
-		ovip_ace_acaddr_t s_addr;
-		bit [3:0]         s_snoop;
-		bit [2:0]         s_prot;
+		logic [`OVIP_ACE_MAX_ACADDR_WIDTH-1 : 0] s_addr;
+		logic [3:0]                              s_snoop;
+		logic [2:0]                              s_prot;
 
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.acvalid);
-		s_addr  = vif.monitor_cb.acaddr;
+		s_addr  = vif.monitor_cb.acaddr & ACADDR_MASK;
 		s_snoop = vif.monitor_cb.acsnoop;
 		s_prot  = vif.monitor_cb.acprot;
 
@@ -298,7 +330,7 @@ task ovip_ace_monitor::ac_channel_signal_stability_check();
 				`uvm_error({MESSAGE_TAG, "ACE_MON/AC_STABILITY"}, "ACVALID de-asserted before ACREADY (D3.6.2)")
 				break;
 			end
-			if(vif.monitor_cb.acaddr !== s_addr || vif.monitor_cb.acsnoop !== s_snoop || vif.monitor_cb.acprot !== s_prot)
+			if((vif.monitor_cb.acaddr & ACADDR_MASK) !== s_addr || vif.monitor_cb.acsnoop !== s_snoop || vif.monitor_cb.acprot !== s_prot)
 				`uvm_error({MESSAGE_TAG, "ACE_MON/AC_STABILITY"}, "AC payload (ACADDR/ACSNOOP/ACPROT) changed before ACREADY (D3.6.2)")
 		end
 	end
@@ -307,10 +339,11 @@ endtask : ac_channel_signal_stability_check
 
 task ovip_ace_monitor::cr_channel_signal_stability_check();
 	// CRRESP must be stable and CRVALID must stay asserted from CRVALID HIGH
-	// until the CRREADY handshake.
+	// until the CRREADY handshake. A bit that holds X or Z in both cycles is
+	// not a change.
 	forever
 	begin
-		bit [4:0] s_resp;
+		logic [4:0] s_resp;
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.crvalid);
 		s_resp = vif.monitor_cb.crresp;
 
@@ -332,13 +365,15 @@ endtask : cr_channel_signal_stability_check
 
 task ovip_ace_monitor::cd_channel_signal_stability_check();
 	// CDDATA/CDLAST must be stable and CDVALID must stay asserted from CDVALID
-	// HIGH until the CDREADY handshake.
+	// HIGH until the CDREADY handshake. CDDATA is compared over
+	// cfg.cddata_width bits. A bit that holds X or Z in both cycles is not a
+	// change.
 	forever
 	begin
-		ovip_ace_cddata_t s_data;
-		bit               s_last;
+		logic [`OVIP_ACE_MAX_CDDATA_WIDTH-1 : 0] s_data;
+		logic                                    s_last;
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.cdvalid);
-		s_data = vif.monitor_cb.cddata;
+		s_data = vif.monitor_cb.cddata & CDDATA_MASK;
 		s_last = vif.monitor_cb.cdlast;
 
 		while(!(vif.monitor_cb.cdvalid && vif.monitor_cb.cdready))
@@ -350,7 +385,7 @@ task ovip_ace_monitor::cd_channel_signal_stability_check();
 				`uvm_error({MESSAGE_TAG, "ACE_MON/CD_STABILITY"}, "CDVALID de-asserted before CDREADY")
 				break;
 			end
-			if(vif.monitor_cb.cddata !== s_data || vif.monitor_cb.cdlast !== s_last)
+			if((vif.monitor_cb.cddata & CDDATA_MASK) !== s_data || vif.monitor_cb.cdlast !== s_last)
 				`uvm_error({MESSAGE_TAG, "ACE_MON/CD_STABILITY"}, "CD payload (CDDATA/CDLAST) changed before CDREADY")
 		end
 	end
@@ -414,13 +449,16 @@ function void ovip_ace_monitor::check_ace_read_address(ovip_ace_trans tr);
 		tr.monitor_error = 1;
 	end
 
-	// Cache-line transactions address exactly one aligned cache line (D3.1.6).
+	// Cache-line transactions address exactly one cache line (D3.1.6,
+	// Table D3-10). An INCR burst starts at the cache line boundary. A WRAP
+	// burst starts at any AxSIZE-aligned address in the line, which
+	// ovip_axi_monitor checks for every WRAP burst. FIXED is not supported.
 	if(is_cache_line_transaction(tr.snoop))
 	begin
 		int total_bytes = (tr.len + 1) * (1 << tr.size);
-		if(tr.burst != OVIP_AXI_BURST_INCR)
+		if(tr.burst == OVIP_AXI_BURST_FIXED)
 		begin
-			`uvm_error(tag, $sformatf("%s must use an INCR burst (D3.1.6)", tr.transaction_name()))
+			`uvm_error(tag, $sformatf("%s must use an INCR or WRAP burst, got FIXED (Table D3-10)", tr.transaction_name()))
 			tr.monitor_error = 1;
 		end
 		if(total_bytes != ace_cfg.cache_line_size)
@@ -428,9 +466,9 @@ function void ovip_ace_monitor::check_ace_read_address(ovip_ace_trans tr);
 			`uvm_error(tag, $sformatf("%s must transfer exactly one cache line (%0dB), got %0dB (D3.1.6)", tr.transaction_name(), ace_cfg.cache_line_size, total_bytes))
 			tr.monitor_error = 1;
 		end
-		if(tr.addr % ace_cfg.cache_line_size != 0)
+		if(tr.burst == OVIP_AXI_BURST_INCR && tr.addr % ace_cfg.cache_line_size != 0)
 		begin
-			`uvm_error(tag, $sformatf("%s start address 0x%0h must be aligned to the cache line size (%0dB) (D3.1.6)", tr.transaction_name(), tr.addr, ace_cfg.cache_line_size))
+			`uvm_error(tag, $sformatf("%s INCR start address 0x%0h must be aligned to the cache line size (%0dB) (Table D3-10)", tr.transaction_name(), tr.addr, ace_cfg.cache_line_size))
 			tr.monitor_error = 1;
 		end
 	end
@@ -457,19 +495,38 @@ function void ovip_ace_monitor::check_ace_write_address(ovip_ace_trans tr);
 		return;
 	end
 
-	// Coherent writes (AWSNOOP != 0b000) require a shareable domain (D3.1.1).
-	if(tr.snoop[2:0] != OVIP_ACE_AWSNOOP_WRITE_NO_SNOOP_OR_WRITE_UNIQUE &&
-	   !(tr.domain inside {OVIP_ACE_DOMAIN_INNER_SHAREABLE, OVIP_ACE_DOMAIN_OUTER_SHAREABLE}))
+	// AWDOMAIN per write type (Table D3-8). WriteLineUnique and Evict require
+	// an Inner/Outer Shareable domain. WriteClean, WriteBack and WriteEvict may
+	// also be Non-shareable. AWSNOOP 0b000 is legal in every domain.
+	case(s)
+		OVIP_ACE_AWSNOOP_WRITE_LINE_UNIQUE,
+		OVIP_ACE_AWSNOOP_EVICT:
+			if(!(tr.domain inside {OVIP_ACE_DOMAIN_INNER_SHAREABLE, OVIP_ACE_DOMAIN_OUTER_SHAREABLE}))
+			begin
+				`uvm_error(tag, $sformatf("%s must use Inner/Outer Shareable AxDOMAIN, got %s (Table D3-8)", tr.transaction_name(), tr.domain.name()))
+				tr.monitor_error = 1;
+			end
+		OVIP_ACE_AWSNOOP_WRITE_CLEAN,
+		OVIP_ACE_AWSNOOP_WRITE_BACK,
+		OVIP_ACE_AWSNOOP_WRITE_EVICT:
+			if(tr.domain == OVIP_ACE_DOMAIN_SYSTEM)
+			begin
+				`uvm_error(tag, $sformatf("%s must not use the System AxDOMAIN (Table D3-8)", tr.transaction_name()))
+				tr.monitor_error = 1;
+			end
+		default: ;
+	endcase
+
+	// AWUNIQUE (Table D3-9): WriteEvict must assert it, WriteClean must
+	// deassert it, and every other write may do either.
+	if(s == OVIP_ACE_AWSNOOP_WRITE_EVICT && !tr.awunique)
 	begin
-		`uvm_error(tag, $sformatf("%s must use Inner/Outer Shareable AxDOMAIN, got %s (D3.1.1)", tr.transaction_name(), tr.domain.name()))
+		`uvm_error(tag, "WriteEvict must assert AWUNIQUE (Table D3-9)")
 		tr.monitor_error = 1;
 	end
-
-	// AWUNIQUE is only meaningful on WriteEvict (Table D3-9); on any other
-	// write it must be LOW.
-	if(tr.awunique && tr.snoop[2:0] != OVIP_ACE_AWSNOOP_WRITE_EVICT)
+	if(s == OVIP_ACE_AWSNOOP_WRITE_CLEAN && tr.awunique)
 	begin
-		`uvm_error(tag, $sformatf("AWUNIQUE asserted on %s; only WriteEvict may set AWUNIQUE (Table D3-9)", tr.transaction_name()))
+		`uvm_error(tag, "WriteClean must deassert AWUNIQUE (Table D3-9)")
 		tr.monitor_error = 1;
 	end
 
@@ -506,17 +563,17 @@ function void ovip_ace_monitor::check_snoop(ovip_ace_trans tr);
 
 	is_dvm = (s == OVIP_ACE_ACSNOOP_DVM_COMPLETE || s == OVIP_ACE_ACSNOOP_DVM_MESSAGE);
 
-	// A DVM snoop never transfers snoop data (D5.4).
+	// A DVM snoop never transfers snoop data (D13.2.5).
 	if(is_dvm && tr.snoop_resp.data_transfer)
 	begin
-		`uvm_error(tag, "CRRESP.DataTransfer set on a DVM snoop; DVM must not transfer data (D5.4)")
+		`uvm_error(tag, "CRRESP.DataTransfer set on a DVM snoop; DVM must not transfer data (D13.2.5)")
 		tr.monitor_error = 1;
 	end
 
-	// PassDirty is only meaningful when data is transferred (Table D3-21).
+	// PassDirty is only meaningful when data is transferred (Table D3-22).
 	if(tr.snoop_resp.pass_dirty && !tr.snoop_resp.data_transfer)
 	begin
-		`uvm_error(tag, "CRRESP.PassDirty set without CRRESP.DataTransfer (Table D3-21)")
+		`uvm_error(tag, "CRRESP.PassDirty set without CRRESP.DataTransfer (Table D3-22)")
 		tr.monitor_error = 1;
 	end
 

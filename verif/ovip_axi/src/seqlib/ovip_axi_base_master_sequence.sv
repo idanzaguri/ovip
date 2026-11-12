@@ -20,6 +20,12 @@
 // Use case for raw start_item/finish_item: when you need fine control over
 // per-item arbitration priority or layering, write the trans-handling loop
 // yourself and call get_response per item, like simple_wr_bursts_seq does.
+//
+// A reset ends the transactions in flight. The driver then puts back every
+// item it took and did not complete, with `dropped_by_reset` set, so
+// wait_for_responses() and get_response() return for those items too. Such
+// an item has no valid response: check the bit before you use `resp` or the
+// read data.
 
 class ovip_axi_base_master_sequence extends uvm_sequence#(ovip_axi_trans);
 
@@ -48,7 +54,8 @@ class ovip_axi_base_master_sequence extends uvm_sequence#(ovip_axi_trans);
 	// Block until the driver has put() back a response for every transaction
 	// we've send()-ed so far. After this returns, every in-flight read has
 	// delivered its data and every in-flight write has its BRESP, so body()
-	// can safely return without leaving traffic on the bus.
+	// can safely return without leaving traffic on the bus. The exception is
+	// an item that a reset ended: it comes back with `dropped_by_reset` set.
 	virtual task wait_for_responses();
 		ovip_axi_trans rsp;
 		foreach(tr_pool[ii]) get_response(rsp);

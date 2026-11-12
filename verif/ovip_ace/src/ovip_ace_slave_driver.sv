@@ -10,10 +10,8 @@
 //     internal mailbox and drives AC, then captures master's CR (and
 //     optionally CD) into the same trans handle for the test to inspect.
 //     Tests push snoops via push_snoop(snoop_tr).
-//   - RACK / WACK monitor on the slave side -- captures the master's
-//     acknowledge pulses so D6.2 sequencing rules can be enforced by the
-//     monitor / scoreboard. (Currently just counts; the rule check itself
-//     belongs to the monitor.)
+//
+// The driver does not use RACK / WACK: ovip_ace_monitor counts them.
 
 class ovip_ace_slave_driver extends ovip_axi_slave_driver #(virtual ovip_ace_agent_if);
 
@@ -32,6 +30,9 @@ class ovip_ace_slave_driver extends ovip_axi_slave_driver #(virtual ovip_ace_age
 
 	extern virtual function void build_phase(uvm_phase phase);
 
+	// A reset drops the snoops that wait in snoop_request_mb.
+	extern virtual function void reset_internal_state();
+
 	// Reset value driving
 	extern virtual function void drive_reset_values();
 	extern virtual function void drive_r_channel_reset_values();
@@ -46,7 +47,9 @@ class ovip_ace_slave_driver extends ovip_axi_slave_driver #(virtual ovip_ace_age
 
 	// Push a snoop into the request mailbox. The driver pulls from there
 	// and drives AC; once the master completes CR (and optionally CD), the
-	// trans handle is updated with the captured response.
+	// trans handle is updated with the captured response. ACE profile only:
+	// an ACE-Lite agent has no snoop channels, reports an error and drops
+	// the snoop. A reset drops the snoops that were pushed before it.
 	extern virtual function void push_snoop(ovip_ace_trans snoop_tr);
 
 endclass : ovip_ace_slave_driver
@@ -58,6 +61,13 @@ function void ovip_ace_slave_driver::build_phase(uvm_phase phase);
 	if(!$cast(ace_cfg, cfg))
 		`uvm_fatal("ACE_DRV", "Slave driver cfg must be an ovip_ace_agent_config")
 endfunction : build_phase
+
+
+function void ovip_ace_slave_driver::reset_internal_state();
+	ovip_ace_trans dropped;
+	super.reset_internal_state();
+	while(snoop_request_mb.try_get(dropped));
+endfunction : reset_internal_state
 
 
 function void ovip_ace_slave_driver::drive_reset_values();
@@ -89,13 +99,14 @@ function void ovip_ace_slave_driver::drive_rd_channel(ovip_axi_trans tr);
 	ovip_ace_trans ace_tr;
 	bit [3:0] resp4 = 4'b0;
 
-	// Inherited code drives rdata / rid / ruser / rlast and writes
-	// rresp <= tr.resp on the last beat. We need rresp[3:2] (IsShared,
-	// PassDirty) driven on every beat -- D3.2.1 requires them constant
-	// across the burst -- so we overwrite rresp here unconditionally.
+	// Inherited code drives rdata / rid / ruser / rlast and the 2-bit RRESP
+	// of the beat. The ACE RRESP has four bits, so it is driven again here on
+	// every beat: [1:0] is the response of this beat, as in the base class,
+	// and [3:2] are IsShared and PassDirty, which D3.2.1 requires constant
+	// across the burst.
 	super.drive_rd_channel(tr);
 
-	resp4[1:0] = tr.resp;
+	resp4[1:0] = tr.resp_of_beat(tr.burst_index);
 	if($cast(ace_tr, tr) && ace_tr.direction == OVIP_ACE_INITIATING
 	    && ace_cfg.profile == OVIP_ACE_PROFILE_ACE)
 	begin
@@ -116,6 +127,13 @@ endtask : extra_forks
 
 
 function void ovip_ace_slave_driver::push_snoop(ovip_ace_trans snoop_tr);
+	// ACE-Lite has no snoop channels: snoop_request_driver does not run, and
+	// nothing would ever take the snoop from the mailbox.
+	if(ace_cfg.profile != OVIP_ACE_PROFILE_ACE)
+	begin
+		`uvm_error("ACE_SLAVE_DRV/SNOOP", "push_snoop() called on an ACE-Lite agent, which has no snoop channels; the snoop is dropped")
+		return;
+	end
 	// try_put (non-blocking, function) rather than put (blocking task): the
 	// mailbox is unbounded, so this always succeeds, and it keeps push_snoop a
 	// function callable from any context.
@@ -128,6 +146,11 @@ task ovip_ace_slave_driver::snoop_request_driver();
 	forever
 	begin
 		snoop_request_mb.get(snoop_tr);
+
+		// push_snoop() can come at any time. Align to the clock edge, so that
+		// ACVALID is on the wire for a whole cycle before the wait for
+		// ACREADY looks at it, also when the master holds ACREADY HIGH.
+		@(vif.slave_cb);
 
 		// Drive AC -- D3.6.2 stability rule: ACADDR/ACSNOOP/ACPROT must be
 		// stable from ACVALID HIGH until ACREADY. Same shape as AXI's

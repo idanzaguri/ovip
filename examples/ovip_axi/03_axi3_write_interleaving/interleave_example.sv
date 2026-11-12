@@ -136,9 +136,9 @@ package interleave_example_pkg;
 			slave_cfg.bus_width      = OVIP_AXI_BUS_WIDTH_4B;
 			slave_cfg.addr_width     = 32;
 			slave_cfg.is_active      = UVM_ACTIVE;
-			// Slave monitor enforces these on observed traffic -- must be at
-			// least as big as the master's actual OOO / interleaving level.
-			slave_cfg.wr_out_of_order_depth = N_WRITES;
+			// The slave monitor checks that the first W beats follow the AW
+			// order and that the interleaving stays inside its own
+			// wr_interleave_depth, so that depth must be at least the master's.
 			slave_cfg.wr_interleave_depth   = N_WRITES;
 
 			master_agent = ovip_axi_agent::type_id::create("master_agent", this);

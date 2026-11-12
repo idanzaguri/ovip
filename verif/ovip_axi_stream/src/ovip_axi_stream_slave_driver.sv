@@ -7,6 +7,8 @@
 // cycle, alternating the TREADY level. New patterns are delivered through
 // `tready_pattern_mb` (set by the slave sequence or directly via
 // put_tready_pattern); a put preempts whatever pattern is currently running.
+// With cfg.tready_en = 0 the interface has no TREADY: the driver does not
+// drive the wire and plays no pattern.
 class ovip_axi_stream_slave_driver extends uvm_component;
 
 	virtual ovip_axi_stream_agent_if vif;
@@ -48,6 +50,10 @@ endfunction : build_phase
 
 
 task ovip_axi_stream_slave_driver::run_phase(uvm_phase phase);
+	// Without TREADY on the interface (spec section 3.1.1) the receiver has no
+	// signal to drive.
+	if(!cfg.tready_en) return;
+
 	drive_reset_values();
 	@(vif.slave_cb iff vif.slave_cb.aresetn);
 
@@ -99,6 +105,14 @@ endtask : tready_driver
 task ovip_axi_stream_slave_driver::play_pattern(ovip_axi_stream_ready_pattern_t pat);
 	bit level;
 	if(pat.cycles.size() == 0) pat = '{cycles:'{0, 1}, loop:0};
+	// A pattern with no cycle in it has no level to hold, and with loop=1 it
+	// would never let time advance: play always ready instead, as the
+	// ovip_axi drivers do for their ready patterns.
+	if(pat.cycles.sum() == 0)
+	begin
+		`uvm_warning({MESSAGE_TAG, "AXIS_DRV/TREADY_PATTERN"}, "TREADY pattern cycles[] sum to 0: falling back to '{cycles:'{0, 1}, loop:0} (always ready).")
+		pat = '{cycles:'{0, 1}, loop:0};
+	end
 	do begin
 		for(int ii = 0; ii < pat.cycles.size(); ii++)
 		begin
@@ -123,6 +137,11 @@ endtask : play_pattern
 
 function void ovip_axi_stream_slave_driver::put_tready_pattern(int unsigned cycles[$], bit loop = 0);
 	ovip_axi_stream_ready_pattern_t pat;
+	if(!cfg.tready_en)
+	begin
+		`uvm_warning({MESSAGE_TAG, "AXIS_DRV/TREADY_PATTERN"}, "put_tready_pattern has no effect: with tready_en=0 the receiver does not drive TREADY.")
+		return;
+	end
 	pat.cycles = cycles;
 	pat.loop   = loop;
 	void'(tready_pattern_mb.try_put(pat));

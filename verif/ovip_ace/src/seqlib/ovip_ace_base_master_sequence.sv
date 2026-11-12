@@ -40,7 +40,8 @@ class ovip_ace_base_master_sequence extends ovip_axi_base_master_sequence;
 	endfunction : make_read
 
 	// Build an ACE write. `snoop` carries AWSNOOP in its low 3 bits (the MSB is
-	// ignored on the wire). Provide one data/strb beat per (len+1).
+	// ignored on the wire). Provide one data/strb beat per (len+1): AWLEN is
+	// the number of data beats minus one, so an empty data queue is an error.
 	virtual function ovip_ace_trans make_write(
 		ovip_axi_addr_t     addr,
 		bit [3:0]           snoop,
@@ -50,10 +51,12 @@ class ovip_ace_base_master_sequence extends ovip_axi_base_master_sequence;
 		ovip_axi_size_t     size = OVIP_AXI_SIZE_4B
 	);
 		ovip_ace_trans tr = ovip_ace_trans::type_id::create("ace_wr");
+		if(data_beats.size() == 0)
+			`uvm_error("ACE_SEQ/MAKE_WRITE", "make_write() called with no data beats; the item is built with AWLEN = 0 and no data")
 		tr.tr_type    = OVIP_AXI_WRITE_TRANS;
 		tr.direction  = OVIP_ACE_INITIATING;
 		tr.addr       = addr;
-		tr.len        = data_beats.size() - 1;
+		tr.len        = (data_beats.size() == 0) ? 0 : data_beats.size() - 1;
 		tr.size       = size;
 		tr.burst      = OVIP_AXI_BURST_INCR;
 		tr.domain     = domain;

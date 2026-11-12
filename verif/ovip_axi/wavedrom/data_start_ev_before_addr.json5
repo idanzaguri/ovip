@@ -9,6 +9,6 @@
    {name: 'wready',  wave: '0....1.'},
  ],
    edge:[
-   '1~->2 addr_phase_delay = 2'
+   '1~->2 addr_phase_delay = 3'
  ],
   }

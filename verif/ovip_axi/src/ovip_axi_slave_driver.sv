@@ -116,15 +116,20 @@ function ovip_axi_data_t ovip_axi_slave_driver::idle_value(int bits = 64);
 	return v;
 endfunction : idle_value
 
+// Only the channels of cfg.interface_type: the slave does not drive the
+// wires of a channel that its interface does not have.
 function void ovip_axi_slave_driver::drive_reset_values();
-	vif.slave_cb.rvalid <= 0;
-	vif.slave_cb.bvalid <= 0;
-
-	vif.slave_cb.arready <= 0;
-	vif.slave_cb.awready <= 0;
-	vif.slave_cb.wready <= 0;
-	vif.slave_cb.bvalid <= 0;
-
+	if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE)
+	begin
+		vif.slave_cb.arready <= 0;
+		vif.slave_cb.rvalid  <= 0;
+	end
+	if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE)
+	begin
+		vif.slave_cb.awready <= 0;
+		vif.slave_cb.wready  <= 0;
+		vif.slave_cb.bvalid  <= 0;
+	end
 endfunction : drive_reset_values
 
 

@@ -8,7 +8,7 @@ Demonstrates the AXI3 write-channel interleaving feature: two writes with differ
 - **`cfg.wr_interleave_depth`** -- how many distinct write IDs may have their W beats in flight concurrently. `1` = no interleaving (back-to-back).
 - **`cfg.wr_out_of_order_depth`** -- reorder window for the master driver's W scheduler; must be at least the interleave depth.
 - **`cfg.wr_scheduling_alg`** -- `OVIP_AXI_SCH_ALG_ROUND_ROBIN` here, which alternates between IDs cycle-by-cycle.
-- **Matching slave config** -- the slave's monitor enforces `wr_interleave_depth` and `wr_out_of_order_depth` against observed traffic; both must be at least as big as what the master actually does or you'll see `AXI_MON/WDATA_OOO` errors.
+- **Matching slave config** -- the slave's monitor checks that the first W beats of the writes follow the AW order (`AXI_MON/WDATA_OOO`) and that the interleaving stays inside its own `wr_interleave_depth` (`AXI_MON/INTERLEAVING_EXCEED`). So the slave's `wr_interleave_depth` must be at least as big as the master's. The monitor does not use `wr_out_of_order_depth`.
 - **Live W-channel watcher** -- a small `forever` thread in the test prints `wid, wdata, wlast` for every accepted W handshake, making the interleave pattern visible in the log.
 
 ## Files

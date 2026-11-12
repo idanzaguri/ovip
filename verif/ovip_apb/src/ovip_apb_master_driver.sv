@@ -80,8 +80,11 @@ task ovip_apb_master_driver::run_phase(uvm_phase phase);
 			`uvm_info({MESSAGE_TAG, "APB_DRV"}, "Reset killed an in-flight transfer -- completing it to release the sequencer", UVM_LOW)
 			seq_item_port.item_done();
 			item_in_progress = 0;
-			req = null;
 		end
+		// Whatever the driver still held is from before the reset: an item
+		// taken but not yet started, or the last one, done, in its gap. Keeping
+		// it would drive it again after the release.
+		req = null;
 		if(vif.master_cb.presetn == 1'b0)
 			@(vif.master_cb iff vif.master_cb.presetn);
 	end
@@ -130,9 +133,14 @@ task ovip_apb_master_driver::tx_driver();
 		if(req == null)
 		begin
 			seq_item_port.get_next_item(req);
+			item_in_progress = 1;   // the sequencer's item from here to item_done, so a reset releases it
+			req.transaction_finished = 0;
 			@(vif.master_cb);
 		end
 		item_in_progress = 1;
+		// set at the completion: an item that a reset releases reads 0, also
+		// one that finished in an earlier send
+		req.transaction_finished = 0;
 		void'(check_trans_validity(req));
 		drive_transfer(req);
 		seq_item_port.item_done();
@@ -180,7 +188,7 @@ task ovip_apb_master_driver::drive_transfer(ovip_apb_trans tr);
 		vif.master_cb.pwdata <= '0;
 		vif.master_cb.pstrb  <= '0;
 	end
-	tr.setup_time = $time;
+	tr.setup_time = $realtime;
 	@(vif.master_cb);
 
 	// ACCESS phase: PENABLE HIGH, everything else held stable until PREADY.
@@ -191,7 +199,7 @@ task ovip_apb_master_driver::drive_transfer(ovip_apb_trans tr);
 	if(!tr.write)
 		tr.rdata = vif.master_cb.prdata & DATA_MASK;
 	tr.slverr = cfg.pslverr_en ? bit'(vif.master_cb.pslverr) : 1'b0;
-	tr.complete_time        = $time;
+	tr.complete_time        = $realtime;
 	tr.transaction_finished = 1;
 endtask : drive_transfer
 
@@ -204,7 +212,10 @@ function bit ovip_apb_master_driver::check_trans_validity(ovip_apb_trans tr);
 	if(tr.write)
 	begin
 		`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "PWDATA", tr.wdata, cfg.data_width*8, err_flag)
-		`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "PSTRB",  tr.strb,  cfg.data_width,   err_flag)
+		// strb is driven only on an agent with PSTRB. All ones means every
+		// lane of the bus, whatever its width (the default of apb_write).
+		if(cfg.pstrb_en && !(&tr.strb))
+			`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "PSTRB",  tr.strb,  cfg.data_width,   err_flag)
 	end
 	else if(tr.strb != 0)
 	begin

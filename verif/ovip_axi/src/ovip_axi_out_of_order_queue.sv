@@ -6,6 +6,11 @@ class ovip_axi_out_of_order_queue extends uvm_object;
 	int reorder_depth;
 	int interleaving_depth;
 	bit q_type_is_wr_data;
+	// The W queue of a master (q_type_is_wr_data) starts the data of its
+	// writes in the order of the queue, which is the AW order: AXI3 wants the
+	// first W beat of each write in that order (spec A5.3.3). When set, a
+	// write may start before one that is ahead of it in the queue.
+	bit allow_wdata_out_of_aw_order;
 	ovip_axi_scheduling_algorithm_t scheduling_alg;
 
 	typedef struct {
@@ -27,6 +32,7 @@ class ovip_axi_out_of_order_queue extends uvm_object;
 		reorder_depth = 1;
 		interleaving_depth = 1;
 		q_type_is_wr_data = 0;
+		allow_wdata_out_of_aw_order = 0;
 		sch_rr_idx = -1;
 		scheduling_alg = OVIP_AXI_SCH_ALG_RANDOM;
 		tr_fifo = new(); // unbounded
@@ -95,6 +101,8 @@ class ovip_axi_out_of_order_queue extends uvm_object;
 	// "Out-of-Order, Interleaving & Scheduling"). The exact rotation order here is a
 	// golden reference for ovip_axi_rd_interleaving_test / ovip_axi3_wr_interleaving_test
 	// (their expected_errors encode it) -- changing it will require regenerating those.
+	// In the W queue of a master the ready set holds at most one write that has not
+	// started, the first such write of the queue (see schedule_next).
 	virtual function int pick_index(int N);
 		case (scheduling_alg)
 			OVIP_AXI_SCH_ALG_RANDOM:
@@ -125,6 +133,7 @@ class ovip_axi_out_of_order_queue extends uvm_object;
 	function void schedule_next();
 		bit pending_ids[*]; // Array to hold all pending IDs, needed to enforce ordering for the same ID
 		int ready_indices[$]; // Array to hold all indices in tr_q that are ready for driving
+		bit start_is_blocked = 0; // W queue of a master: a write ahead of this entry has not started
 
 		// Stage I: Identify all transactions that are ready for driving
 		for (int ii = 0; ii < tr_q.size() && ii < reorder_depth; ii++)
@@ -139,12 +148,16 @@ class ovip_axi_out_of_order_queue extends uvm_object;
 				(
 					tr_q[ii].in_flight
 					||
-					(!tr_q[ii].in_flight && interleaved_ids.num() < interleaving_depth) // Ensure interleaving depth is respected
+					(!tr_q[ii].in_flight && interleaved_ids.num() < interleaving_depth && !start_is_blocked) // Ensure interleaving depth is respected
 				)
 			) begin
 				ready_indices.push_back(ii); // Mark this transaction as ready for driving
 			end
 			pending_ids[id] = 1; // Record this ID to enforce ordering among transactions with the same ID
+			// The data of the writes starts in the order of the queue: no entry
+			// after one that has not started may start.
+			if (q_type_is_wr_data && !allow_wdata_out_of_aw_order && !tr_q[ii].in_flight)
+				start_is_blocked = 1;
 		end
 
 		if (ready_indices.size() == 0) return; // Exit if there are no transactions ready for driving

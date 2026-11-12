@@ -1,6 +1,12 @@
 `ifndef OVIP_AXI_STREAM_AGENT__SV
 `define OVIP_AXI_STREAM_AGENT__SV
 
+// The ovip_axi_stream agent. It gets `cfg` and `vif` from uvm_config_db (or
+// takes the handles set on it directly), builds the monitor and, when it is
+// active, the driver of its side: master_drv and master_sqr for a
+// transmitter, slave_drv and slave_sqr for a receiver. It passes `cfg` and
+// `vif` on to each child. The README, "Integrating into your environment",
+// points to the examples that set it up.
 class ovip_axi_stream_agent extends uvm_agent;
 	ovip_axi_stream_agent_config cfg;
 	virtual ovip_axi_stream_agent_if vif;
@@ -33,11 +39,16 @@ function void ovip_axi_stream_agent::build_phase(uvm_phase phase);
 			`uvm_fatal("MISSING_CFG", $sformatf("Missing config object - %s.cfg", get_full_name()))
 	void'(cfg.check_config());
 
+	if(vif == null)
+		if(!uvm_config_db#(virtual ovip_axi_stream_agent_if)::get(this, "", "vif", vif))
+			`uvm_fatal("MISSING_VIF", $sformatf("Missing virtual interface - %s.vif", get_full_name()))
+
 	is_active = cfg.is_active;
 	super.build_phase(phase);
 
-	// Push cfg down to children so each build_phase finds it.
+	// Push cfg and vif down to children so each build_phase finds them.
 	uvm_config_db#(ovip_axi_stream_agent_config)::set(this, "mon", "cfg", cfg);
+	uvm_config_db#(virtual ovip_axi_stream_agent_if)::set(this, "mon", "vif", vif);
 
 	mon = ovip_axi_stream_monitor::type_id::create("mon", this);
 	mon.cfg = cfg;
@@ -47,6 +58,7 @@ function void ovip_axi_stream_agent::build_phase(uvm_phase phase);
 		if(cfg.agent_type == OVIP_AXI_STREAM_TRANSMITTER)
 		begin
 			uvm_config_db#(ovip_axi_stream_agent_config)::set(this, "master_drv", "cfg", cfg);
+			uvm_config_db#(virtual ovip_axi_stream_agent_if)::set(this, "master_drv", "vif", vif);
 			master_drv = ovip_axi_stream_master_driver::type_id::create("master_drv", this);
 			master_drv.cfg = cfg;
 			master_sqr = uvm_sequencer#(ovip_axi_stream_trans)::type_id::create("master_sqr", this);
@@ -54,6 +66,7 @@ function void ovip_axi_stream_agent::build_phase(uvm_phase phase);
 		else
 		begin
 			uvm_config_db#(ovip_axi_stream_agent_config)::set(this, "slave_drv", "cfg", cfg);
+			uvm_config_db#(virtual ovip_axi_stream_agent_if)::set(this, "slave_drv", "vif", vif);
 			slave_drv = ovip_axi_stream_slave_driver::type_id::create("slave_drv", this);
 			slave_drv.cfg = cfg;
 			slave_sqr = ovip_axi_stream_slave_sequencer::type_id::create("slave_sqr", this);
@@ -64,9 +77,6 @@ endfunction : build_phase
 
 function void ovip_axi_stream_agent::connect_phase(uvm_phase phase);
 	super.connect_phase(phase);
-
-	if(!uvm_config_db#(virtual ovip_axi_stream_agent_if)::get(this, "", "vif", vif))
-		`uvm_fatal("MISSING_VIF", $sformatf("Missing virtual interface - %s.vif", get_full_name()))
 
 	mon.vif = vif;
 

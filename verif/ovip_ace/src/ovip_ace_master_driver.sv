@@ -11,7 +11,8 @@
 //     Response policy comes from the build_snoop_response() virtual hook;
 //     default is "cache miss" (CRRESP=0, no data). Tests override the hook
 //     in a derived class.
-//   - RACK / WACK single-cycle pulses via extra_forks() + rack_wack_driver.
+//   - RACK / WACK, one cycle per completed transaction, via extra_forks() +
+//     rack_wack_driver.
 
 class ovip_ace_master_driver extends ovip_axi_master_driver #(virtual ovip_ace_agent_if);
 
@@ -47,6 +48,9 @@ class ovip_ace_master_driver extends ovip_axi_master_driver #(virtual ovip_ace_a
 
 	// Test-overridable hook that decides how this master responds to a given
 	// snoop. Default behaves like an empty cache: CRRESP=0, no data, no error.
+	// A response that sets snoop_resp.data_transfer puts the CD beats in
+	// snoop_data_beats; with none, the driver reports an error and clears
+	// data_transfer.
 	extern virtual function void build_snoop_response(ovip_ace_trans snoop_tr);
 
 endclass : ovip_ace_master_driver
@@ -135,13 +139,10 @@ endfunction : sample_rd_response
 
 task ovip_ace_master_driver::extra_forks();
 	fork
-		rack_wack_driver();
-		// ACE-Lite has no snoop channels, no RACK/WACK -- the cb wires are
-		// still present in the interface but the master leaves them at
-		// reset values. The rack_wack_driver above never observes a
-		// handshake on its trigger paths if those signals are unused, so
-		// it is safe to fork it unconditionally; only snoop responses are
-		// gated by profile here.
+		// ACE-Lite has no snoop channels and no RACK/WACK (D11.1). The cb
+		// wires are still present in the interface but the master leaves
+		// them at reset values: both drivers run in the ACE profile only.
+		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) rack_wack_driver();
 		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) snoop_phase_driver();
 	join_none
 endtask : extra_forks
@@ -167,30 +168,45 @@ task ovip_ace_master_driver::snoop_phase_driver();
 		snoop_tr.acprot       = vif.monitor_cb.acprot;
 		build_snoop_response(snoop_tr);
 
-		// Drive CR. Spec D3.9: CRVALID must not wait for CRREADY.
-		vif.master_cb.crvalid <= 1'b1;
-		vif.master_cb.crresp  <= { snoop_tr.snoop_resp.was_unique,
-		                           snoop_tr.snoop_resp.is_shared,
-		                           snoop_tr.snoop_resp.pass_dirty,
-		                           snoop_tr.snoop_resp.error,
-		                           snoop_tr.snoop_resp.data_transfer };
-		@(vif.master_cb iff vif.master_cb.crready);
-		vif.master_cb.crvalid <= 1'b0;
-
-		// If the response signaled a data transfer, drive CD beats.
-		if(snoop_tr.snoop_resp.data_transfer && snoop_tr.snoop_data_beats.size())
+		// DataTransfer promises a full cache line on CD. A response that
+		// sets it and gives no beat to send goes out with DataTransfer LOW.
+		if(snoop_tr.snoop_resp.data_transfer && snoop_tr.snoop_data_beats.size() == 0)
 		begin
-			int n = snoop_tr.snoop_data_beats.size();
-			foreach(snoop_tr.snoop_data_beats[i])
-			begin
-				vif.master_cb.cdvalid <= 1'b1;
-				vif.master_cb.cddata  <= snoop_tr.snoop_data_beats[i];
-				vif.master_cb.cdlast  <= (i == n - 1);
-				@(vif.master_cb iff vif.master_cb.cdready);
-			end
-			vif.master_cb.cdvalid <= 1'b0;
-			vif.master_cb.cdlast  <= 1'b0;
+			`uvm_error("ACE_MASTER_DRV/SNOOP", "build_snoop_response() set CRRESP.DataTransfer and left snoop_data_beats empty; the response is sent with DataTransfer cleared")
+			snoop_tr.snoop_resp.data_transfer = 1'b0;
 		end
+
+		// Drive CR and CD side by side. Spec D3.9: CRVALID and CDVALID must
+		// not wait for CRREADY or CDREADY, so neither channel waits for the
+		// handshake of the other.
+		fork
+			// Drive CR.
+			begin
+				vif.master_cb.crvalid <= 1'b1;
+				vif.master_cb.crresp  <= { snoop_tr.snoop_resp.was_unique,
+				                           snoop_tr.snoop_resp.is_shared,
+				                           snoop_tr.snoop_resp.pass_dirty,
+				                           snoop_tr.snoop_resp.error,
+				                           snoop_tr.snoop_resp.data_transfer };
+				@(vif.master_cb iff vif.master_cb.crready);
+				vif.master_cb.crvalid <= 1'b0;
+			end
+
+			// If the response signaled a data transfer, drive CD beats.
+			if(snoop_tr.snoop_resp.data_transfer && snoop_tr.snoop_data_beats.size())
+			begin
+				int n = snoop_tr.snoop_data_beats.size();
+				foreach(snoop_tr.snoop_data_beats[i])
+				begin
+					vif.master_cb.cdvalid <= 1'b1;
+					vif.master_cb.cddata  <= snoop_tr.snoop_data_beats[i];
+					vif.master_cb.cdlast  <= (i == n - 1);
+					@(vif.master_cb iff vif.master_cb.cdready);
+				end
+				vif.master_cb.cdvalid <= 1'b0;
+				vif.master_cb.cdlast  <= 1'b0;
+			end
+		join
 	end
 endtask : snoop_phase_driver
 
@@ -203,39 +219,19 @@ endfunction : build_snoop_response
 
 
 task ovip_ace_master_driver::rack_wack_driver();
-	int unsigned pending_rack = 0;
-	int unsigned pending_wack = 0;
-	fork
-		// Count completed read transactions -- pending RACK pulses owed.
-		forever begin
-			@(vif.monitor_cb iff vif.monitor_cb.rvalid && vif.monitor_cb.rready && vif.monitor_cb.rlast);
-			pending_rack++;
-		end
-		// Count completed write transactions -- pending WACK pulses owed.
-		forever begin
-			@(vif.monitor_cb iff vif.monitor_cb.bvalid && vif.monitor_cb.bready);
-			pending_wack++;
-		end
-		// Emit RACK pulses, one per completed read, the cycle after the
-		// handshake. D3.3 requires single-cycle assertion and no delay.
-		forever begin
-			wait(pending_rack > 0);
-			@(vif.master_cb);
-			vif.master_cb.rack <= 1'b1;
-			@(vif.master_cb);
-			vif.master_cb.rack <= 1'b0;
-			pending_rack--;
-		end
-		// Same shape for WACK (D3.5).
-		forever begin
-			wait(pending_wack > 0);
-			@(vif.master_cb);
-			vif.master_cb.wack <= 1'b1;
-			@(vif.master_cb);
-			vif.master_cb.wack <= 1'b0;
-			pending_wack--;
-		end
-	join
+	// One acknowledge per completed transaction, with no backlog (D3.3, D3.5,
+	// D6.2.1): RACK is HIGH in the cycle after each RLAST handshake and WACK
+	// in the cycle after each B handshake. Transactions that complete in
+	// consecutive cycles keep the signal HIGH for as many cycles.
+	bit rd_done;
+	bit wr_done;
+	forever begin
+		@(vif.monitor_cb);
+		rd_done = vif.monitor_cb.rvalid && vif.monitor_cb.rready && vif.monitor_cb.rlast;
+		wr_done = vif.monitor_cb.bvalid && vif.monitor_cb.bready;
+		vif.master_cb.rack <= rd_done;
+		vif.master_cb.wack <= wr_done;
+	end
 endtask : rack_wack_driver
 
 `endif

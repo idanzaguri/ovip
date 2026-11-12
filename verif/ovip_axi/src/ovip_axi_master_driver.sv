@@ -45,6 +45,12 @@ class ovip_axi_master_driver #(type IF_T = virtual ovip_axi_agent_if) extends ov
 	// wr_out_of_order_depth, wr_interleave_depth, and wr_scheduling_alg.
 	ovip_axi_out_of_order_queue outstanding_wr_tr;
 
+	// The items the driver took from the sequencer and did not give back yet,
+	// in the order it took them. return_item() takes a completed item off the
+	// list and gives it back. After a reset, return_dropped_items() gives back
+	// the items that are left, with dropped_by_reset set.
+	ovip_axi_trans held_items[$];
+
 
 	mailbox#(ovip_axi_ready_pattern_t) rready_pattern_mb;
 	mailbox#(ovip_axi_ready_pattern_t) bready_pattern_mb;
@@ -96,6 +102,11 @@ class ovip_axi_master_driver #(type IF_T = virtual ovip_axi_agent_if) extends ov
 	// Thread for managing and scheduling transactions from the sequencer.
 	extern virtual task transaction_acceptor();
 
+	// Give an item back to its sequence: a completed one, and after a reset
+	// every item that did not complete.
+	extern virtual task return_item(ovip_axi_trans tr);
+	extern virtual task return_dropped_items();
+
 	extern virtual function bit check_write_trans_validity(ovip_axi_trans tr);
 	extern virtual function bit check_read_trans_validity(ovip_axi_trans tr);
 	extern virtual function bit check_trans_validity(ovip_axi_trans tr);
@@ -111,6 +122,7 @@ function void ovip_axi_master_driver::build_phase(uvm_phase phase);
 	outstanding_wr_tr.interleaving_depth = cfg.wr_interleave_depth;
 	outstanding_wr_tr.scheduling_alg     = cfg.wr_scheduling_alg;
 	outstanding_wr_tr.q_type_is_wr_data = 1;
+	outstanding_wr_tr.allow_wdata_out_of_aw_order = cfg.allow_wdata_out_of_aw_order;
 
 	// Setting signal masks based on the configuration object.
 	ADDR_MASK = (ovip_axi_addr_t'(1)<<cfg.addr_width)-1;
@@ -129,7 +141,7 @@ endfunction : build_phase
 
 function void ovip_axi_master_driver::reset_internal_state();
 	super.reset_internal_state();
-	// Resets all internal data structures.
+	// Resets all internal data structures. held_items stays: return_dropped_items() empties it.
 	pending_rd_tr.delete();
 	outstanding_rd_tr.delete();
 	pending_wr_tr.delete();
@@ -146,6 +158,39 @@ function void ovip_axi_master_driver::reset_internal_state();
 endfunction : reset_internal_state
 
 
+// Gives a completed item back to its sequence. A subclass that completes an
+// item itself calls this, not seq_item_port.put(), so that the item is not
+// given back a second time at the next reset.
+task ovip_axi_master_driver::return_item(ovip_axi_trans tr);
+	foreach(held_items[ii])
+	begin
+		if(held_items[ii] == tr)
+		begin
+			held_items.delete(ii);
+			break;
+		end
+	end
+	seq_item_port.put(tr);
+endtask : return_item
+
+
+// After a reset: every item that the driver took and did not complete goes
+// back to its sequence with dropped_by_reset set, in the order the driver
+// took them. A sequence that waits in get_response() for such an item goes on.
+task ovip_axi_master_driver::return_dropped_items();
+	while(held_items.size())
+	begin
+		ovip_axi_trans tr = held_items.pop_front();
+		tr.dropped_by_reset = 1;
+		seq_item_port.put(tr);
+		// One item at a time, in zero time: a sequence in get_response() takes
+		// each item before the next one arrives, as it does with completed
+		// items, so its response queue does not overflow.
+		#0;
+	end
+endtask : return_dropped_items
+
+
 // A payload field's value while its VALID is low: zero, or random over `bits`
 // bits when cfg.randomize_idle_payload asks for it. AXI leaves it undefined.
 function ovip_axi_data_t ovip_axi_master_driver::idle_value(int bits = 64);
@@ -156,12 +201,20 @@ function ovip_axi_data_t ovip_axi_master_driver::idle_value(int bits = 64);
 	return v;
 endfunction : idle_value
 
+// Only the channels of cfg.interface_type: the master does not drive the
+// wires of a channel that its interface does not have.
 function void ovip_axi_master_driver::drive_reset_values();
-	vif.master_cb.arvalid <= 0;
-	vif.master_cb.awvalid <= 0;
-	vif.master_cb.wvalid  <= 0;
-	vif.master_cb.bready <= 0;
-	vif.master_cb.rready <= 0;
+	if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE)
+	begin
+		vif.master_cb.arvalid <= 0;
+		vif.master_cb.rready  <= 0;
+	end
+	if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE)
+	begin
+		vif.master_cb.awvalid <= 0;
+		vif.master_cb.wvalid  <= 0;
+		vif.master_cb.bready  <= 0;
+	end
 endfunction : drive_reset_values
 
 // ----------------------------------------------------------------- //
@@ -303,7 +356,7 @@ task ovip_axi_master_driver::rdata_phase_driver();
 				// and return it as the response. tr is the original request (ids intact for
 				// get_response routing) and is not mutated after this put.
 				void'(outstanding_rd_tr[rid].pop_front());
-				seq_item_port.put(tr);
+				return_item(tr);
 			end
 		end
 	end
@@ -596,7 +649,7 @@ task ovip_axi_master_driver::bresp_phase_driver();
 
 			tr.resp = ovip_axi_resp_t'(vif.master_cb.bresp);
 			tr.buser = vif.master_cb.buser & BUSER_MASK;
-			seq_item_port.put(tr);
+			return_item(tr);
 		end
 	end
 
@@ -661,7 +714,15 @@ function bit ovip_axi_master_driver::check_trans_validity(ovip_axi_trans tr);
 		end
 	end
 
-	if(tr.data_delay.size() > tr.data_beats.size())
+	// AXI3: a burst has 16 transfers at most, for every burst type (spec A3.4.1)
+	if(cfg.protocol_type == OVIP_PROTOCOL_AXI3 && tr.len > 15)
+	begin
+		err_flag = 1;
+		`uvm_warning("TR_CHK", $sformatf("On AXI3, AxLEN(%0d) must be 15 or less: a burst has 16 transfers at most", tr.len))
+	end
+
+	// A read request has no data beats, and the master does not use the data_delay of a read
+	if(tr.tr_type == OVIP_AXI_WRITE_TRANS && tr.data_delay.size() > tr.data_beats.size())
 	begin
 		err_flag = 1;
 		`uvm_warning("TR_CHK", $sformatf("data_delay size (%0d) is bigger than transaction length",tr.data_delay.size()))
@@ -708,9 +769,12 @@ task ovip_axi_master_driver::transaction_acceptor();
 		forever
 		begin
 			seq_item_port.get(req);
+			held_items.push_back(req);
 
-			// Initialize transaction state variables.
+			// Initialize transaction state variables. A read fills data_beats
+			// from its R beats, so beats left from an earlier send go.
 			req.init_state_variables();
+			if(req.tr_type == OVIP_AXI_READ_TRANS) req.data_beats.delete();
 			req.bus_width = cfg.bus_width;
 			req.is_narrow_transfer = (ovip_axi_bus_width_t'(2**req.size) != cfg.bus_width);
 			// Calculate byte lanes alignment offsets if needed.

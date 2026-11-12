@@ -2,6 +2,7 @@
 `define OVIP_ACE_PKG__SV
 
 `include "ovip_axi_defines.sv"
+`include "ovip_axi_macros.sv"
 `include "ovip_ace_defines.sv"
 `include "ovip_ace_agent_if.sv"
 

@@ -30,16 +30,24 @@ endclass : ovip_apb_agent
 
 
 function void ovip_apb_agent::build_phase(uvm_phase phase);
+	super.build_phase(phase);
 	if(cfg == null)
 		if(!uvm_config_db#(ovip_apb_agent_config)::get(this, "", "cfg", cfg))
 			`uvm_fatal("MISSING_CFG", $sformatf("Missing config object - %s.cfg", get_full_name()))
 	void'(cfg.check_config());
 
-	is_active = cfg.is_active;
-	super.build_phase(phase);
+	if(vif == null)
+		if(!uvm_config_db#(virtual ovip_apb_agent_if)::get(this, "", "vif", vif))
+			`uvm_fatal("MISSING_VIF", $sformatf("Missing virtual interface - %s.vif", get_full_name()))
 
-	// Push cfg down to children so each build_phase finds it.
+	// cfg.is_active alone says whether the agent is active, for the agent
+	// and for its monitor. It replaces an is_active that the config DB gave
+	// the agent in super.build_phase.
+	is_active = cfg.is_active;
+
+	// Push cfg and vif down to children so each build_phase finds them.
 	uvm_config_db#(ovip_apb_agent_config)::set(this, "mon", "cfg", cfg);
+	uvm_config_db#(virtual ovip_apb_agent_if)::set(this, "mon", "vif", vif);
 
 	mon = ovip_apb_monitor::type_id::create("mon", this);
 	mon.cfg = cfg;
@@ -59,6 +67,7 @@ function void ovip_apb_agent::build_phase(uvm_phase phase);
 		if(cfg.agent_type == OVIP_APB_REQUESTER)
 		begin
 			uvm_config_db#(ovip_apb_agent_config)::set(this, "master_drv", "cfg", cfg);
+			uvm_config_db#(virtual ovip_apb_agent_if)::set(this, "master_drv", "vif", vif);
 			master_drv = ovip_apb_master_driver::type_id::create("master_drv", this);
 			master_drv.cfg = cfg;
 			master_sqr = uvm_sequencer#(ovip_apb_trans)::type_id::create("master_sqr", this);
@@ -66,6 +75,7 @@ function void ovip_apb_agent::build_phase(uvm_phase phase);
 		else
 		begin
 			uvm_config_db#(ovip_apb_agent_config)::set(this, "slave_drv", "cfg", cfg);
+			uvm_config_db#(virtual ovip_apb_agent_if)::set(this, "slave_drv", "vif", vif);
 			slave_drv = ovip_apb_slave_driver::type_id::create("slave_drv", this);
 			slave_drv.cfg = cfg;
 			slave_sqr = ovip_apb_slave_sequencer::type_id::create("slave_sqr", this);
@@ -76,9 +86,6 @@ endfunction : build_phase
 
 function void ovip_apb_agent::connect_phase(uvm_phase phase);
 	super.connect_phase(phase);
-
-	if(!uvm_config_db#(virtual ovip_apb_agent_if)::get(this, "", "vif", vif))
-		`uvm_fatal("MISSING_VIF", $sformatf("Missing virtual interface - %s.vif", get_full_name()))
 
 	mon.vif = vif;
 

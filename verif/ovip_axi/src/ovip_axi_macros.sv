@@ -21,15 +21,24 @@ end\
 end
 
 
+// The two macros below report with the message ID of the monitor, so they are
+// for use inside ovip_axi_monitor and its subclasses (MESSAGE_TAG is its member).
 `define OVIP_AXI_MON_XZ_CHECK(signal, name)\
 	if(^(vif.monitor_cb.signal) === 1'bx)\
-		`uvm_error("AXI_MON/XZ_CHECK", $sformatf("Signal %s contains X's or Z's`",`"name`"))
+		`uvm_error({MESSAGE_TAG, "AXI_MON/XZ_CHECK"}, $sformatf("Signal %s contains X's or Z's`",`"name`"))
 
 
 `define OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(field, name)\
 begin\
 	if(sampling_array[0].field != sampling_array[1].field)\
-		`uvm_error("AXI_MON/STABILITY_CHECK", $sformatf("Signal %s was changed before being sampled!",`"name`"))\
+		`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, $sformatf("Signal %s was changed before being sampled!",`"name`"))\
+end
+
+// The same for a data bus, on the byte lanes that the mask `lanes` selects.
+`define OVIP_AXI_MON_DATA_STABILITY_CHECK(field, lanes, name)\
+begin\
+	if((sampling_array[0].field ^ sampling_array[1].field) & (lanes))\
+		`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, $sformatf("Signal %s was changed before being sampled!",`"name`"))\
 end
 
 `endif

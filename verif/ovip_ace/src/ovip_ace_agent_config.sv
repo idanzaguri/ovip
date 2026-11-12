@@ -29,8 +29,10 @@ class ovip_ace_agent_config extends ovip_axi_agent_config;
 	// -----------------------------------------------------------------
 	// Master-side capability advertisements
 	// -----------------------------------------------------------------
-	// External snoop filter support. When 1, the permitted end-state set
-	// for cache-line transitions is tighter (D4.3).
+	// External snoop filter support. In the spec a master with a snoop
+	// filter has a tighter set of permitted end states for cache-line
+	// transitions (D4.3). No effect in this version: the VIP has no cache
+	// model, and check_config only refuses the value 1 on an ACE-Lite agent.
 	bit supports_snoop_filter = 0;
 
 	// WriteEvict support -- requires the master to also provide the
@@ -51,9 +53,9 @@ class ovip_ace_agent_config extends ovip_axi_agent_config;
 	// -----------------------------------------------------------------
 	// D12 interface-control tie-offs
 	// -----------------------------------------------------------------
-	// Constrain what the master is permitted to issue. The check_trans_validity
-	// hooks in the master driver flag any sequence that asks for an outlawed
-	// AxDOMAIN or a cache-maintenance transaction when broadcast is disabled.
+	// What the master is permitted to issue (BROADCASTINNER, BROADCASTOUTER,
+	// BROADCASTCACHEMAINT). These three fields have no effect in this
+	// version: nothing in the VIP reads them.
 	bit broadcast_inner_en       = 1;
 	bit broadcast_outer_en       = 1;
 	bit broadcast_cache_maint_en = 1;
@@ -66,6 +68,25 @@ class ovip_ace_agent_config extends ovip_axi_agent_config;
 		// this as a coherent agent. Users can still override.
 		protocol_type = OVIP_PROTOCOL_ACE;
 	endfunction : new
+
+
+	// copy() and clone() carry the ACE fields; ovip_axi_agent_config::do_copy
+	// copies the AXI fields.
+	virtual function void do_copy(uvm_object rhs);
+		ovip_ace_agent_config c;
+		if(!$cast(c, rhs)) `uvm_fatal("CAST_FAILED", "ovip_ace_agent_config::do_copy: rhs is not an ovip_ace_agent_config")
+		super.do_copy(rhs);
+		profile                  = c.profile;
+		cache_line_size          = c.cache_line_size;
+		acaddr_width             = c.acaddr_width;
+		cddata_width             = c.cddata_width;
+		supports_snoop_filter    = c.supports_snoop_filter;
+		supports_write_evict     = c.supports_write_evict;
+		cache_model              = c.cache_model;
+		broadcast_inner_en       = c.broadcast_inner_en;
+		broadcast_outer_en       = c.broadcast_outer_en;
+		broadcast_cache_maint_en = c.broadcast_cache_maint_en;
+	endfunction : do_copy
 
 
 	function bit check_config();

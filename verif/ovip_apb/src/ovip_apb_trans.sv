@@ -50,17 +50,23 @@ class ovip_apb_trans extends uvm_sequence_item;
 	// Driver/monitor state (not part of the wire payload).
 	// ------------------------------------------------------------------------
 
+	// 1 once the transfer completed. The master driver clears it when it
+	// takes the item, so after send() it is 0 for an item that a reset
+	// released before its completion.
 	bit transaction_finished;
 	bit monitor_error;
 
-	// Snapshot of the agent's bus width in bytes (= cfg.data_width), filled
-	// by the monitor / drivers from cfg so printers can show only live bytes.
+	// The agent's bus width in bytes (= cfg.data_width). The monitor sets it
+	// in the transactions it builds, and in the request it forwards to the
+	// slave sequence. It stays 0 in the item of a requester sequence, and
+	// nothing in the VIP reads it.
 	int bus_width;
 
 	// Observability timestamps: SETUP-cycle sample time and completion
-	// (PSEL && PENABLE && PREADY) sample time.
-	time setup_time;
-	time complete_time;
+	// (PSEL && PENABLE && PREADY) sample time, in ns with their fraction
+	// ($realtime in ovip_apb_pkg, whose time unit is 1 ns).
+	realtime setup_time;
+	realtime complete_time;
 
 	// ------------------------------------------------------------------------
 	// Constraints.
@@ -151,10 +157,22 @@ class ovip_apb_trans extends uvm_sequence_item;
 	endfunction : diff
 
 
+	// The direction and the response as text.
+	protected function string dir_text();
+		if(write) return "WRITE";
+		return "READ";
+	endfunction : dir_text
+
+	protected function string resp_text();
+		if(slverr) return "SLVERR";
+		return "OKAY";
+	endfunction : resp_text
+
+
 	virtual function string convert2string();
 		return $sformatf("(%s) APB %s addr=0x%0h data=0x%0h strb=0x%0h prot=%0h resp=%s waits=%0d",
-			get_name(), write ? "WRITE" : "READ", addr, write ? wdata : rdata, strb, prot,
-			slverr ? "SLVERR" : "OKAY", num_wait_states);
+			get_name(), dir_text(), addr, write ? wdata : rdata, strb, prot,
+			resp_text(), num_wait_states);
 	endfunction : convert2string
 
 
@@ -169,15 +187,15 @@ class ovip_apb_trans extends uvm_sequence_item;
 
 
 	virtual function string log_line();
-		return $sformatf("%-5s %-10s %-10s %-4s %-4s %-6s %-50d %-11s",
+		return $sformatf("%-5s %-10s %-10s %-4s %-4s %-6s %-5d %-11s",
 			write ? "WR" : "RD",
 			$sformatf("%0h", addr),
 			$sformatf("%0h", write ? wdata : rdata),
 			$sformatf("%0h", strb),
 			$sformatf("%0h", prot),
-			slverr ? "SLVERR" : "OKAY",
+			resp_text(),
 			num_wait_states,
-			$sformatf("%0t", setup_time));
+			$sformatf("%0.3fns", setup_time));
 	endfunction : log_line
 
 endclass : ovip_apb_trans

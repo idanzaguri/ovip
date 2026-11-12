@@ -17,15 +17,15 @@ class ovip_axi_stream_simple_packet_seq extends ovip_axi_stream_base_master_sequ
 	rand int beats_per_packet = 1;
 	rand int lens[$];
 
-	// Per-packet TID / TDEST values; if shorter than num_packets, the last
-	// element is reused for the remaining packets. Default leaves them at 0.
+	// Per-packet TID / TDEST values; if shorter than num_packets, the
+	// remaining packets get 0. Default leaves them at 0.
 	rand ovip_axi_stream_id_t   ids[$];
 	rand ovip_axi_stream_dest_t dests[$];
 
-	// Bytes-per-lane configuration is taken from the sequencer's tx agent;
-	// the bus width is inferred at runtime from the agent config via the
-	// driver. Set tdata_width if the seq is started on a sequencer that
-	// hasn't already published cfg.
+	// The bus width in bytes. The sequence does not read the agent's config:
+	// set this to the cfg.tdata_width of the transmitter agent. It sizes the
+	// all-ones TKEEP and TSTRB of every beat, and the data is cut to this
+	// many bytes.
 	int tdata_width = 4;
 
 	// Optional scoreboard snapshot hook: when non-null, each packet's
@@ -52,8 +52,10 @@ class ovip_axi_stream_simple_packet_seq extends ovip_axi_stream_base_master_sequ
 				ovip_axi_stream_keep_t keep = (ovip_axi_stream_keep_t'(1) << tdata_width) - 1;
 				ovip_axi_stream_strb_t strb = (ovip_axi_stream_strb_t'(1) << tdata_width) - 1;
 				// Distinct payload per (packet, beat) so a scoreboard mismatch
-				// at the wire level is immediately recognizable.
+				// at the wire level is immediately recognizable. On a bus of
+				// less than 4 bytes only the low bytes of it fit.
 				data = 32'hA5A5_0000 | (pp << 8) | bb;
+				data &= (ovip_axi_stream_data_t'(1) << (tdata_width * 8)) - 1;
 				tr.data_beats.push_back(data);
 				tr.keep_beats.push_back(keep);
 				tr.strb_beats.push_back(strb);

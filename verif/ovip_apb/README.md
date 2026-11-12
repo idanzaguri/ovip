@@ -72,10 +72,20 @@ req_agent.cfg = req_cfg;
 // ... and the same with OVIP_APB_COMPLETER for the completer side.
 ```
 
+`cfg.is_active` alone decides whether an agent is active. An `is_active`
+given to the agent through the UVM config DB is not used. `cfg.clone()` and
+`copy()` carry every field of a config.
+
 A requester with `req_cfg.randomize_idle_payload = 1` drives random PADDR,
 PWRITE, PWDATA, PSTRB and PPROT while PSEL is LOW, at reset and after every
 transfer. APB gives them a meaning only while PSEL is HIGH, so a completer
 that takes one too early shows it. It is off by default.
+
+The monitor checks PWDATA for X/Z and for stability on the byte lanes whose
+PSTRB bit is HIGH, the lanes that must be valid in a write (spec Appendix
+A.1). An agent with `pstrb_en = 0` has every lane active. Set
+`cfg.check_undefined_data_lanes = 1` on an agent to make its monitor check
+every lane inside the data width, whatever PSTRB says. It is off by default.
 
 Bind the interface once per agent scope:
 
@@ -101,6 +111,20 @@ class my_seq extends ovip_apb_base_master_sequence;
 endclass
 ```
 
+`apb_write` and `apb_read` build their items directly. A sequence that
+randomizes an `ovip_apb_trans` constrains it to the agent's configuration
+itself, because the item does not know the cfg: `addr` inside `addr_width`
+bits and aligned to the data bus width, and on an 8-bit or 16-bit bus `wdata`
+and `strb` inside the `data_width` bytes. The item keeps `strb` at 0 on a
+read by itself. The master driver warns about a field that is too wide and
+masks it, and the base slave sequence warns about an unaligned address.
+
+```systemverilog
+// addr_width = 16, data_width = 4
+if(!tr.randomize() with { addr < (1 << 16); addr % 4 == 0; })
+    `uvm_error("MY_SEQ", "randomize failed")
+```
+
 Completer side -- start the memory-backed base slave sequence (or a subclass)
 on the completer agent's `slave_sqr`. It must answer each request in zero
 simulation time (see the class header):
@@ -112,7 +136,14 @@ slave_seq.set_wait_states(0, 4);           // optional; defaults come from cfg
 fork slave_seq.start(comp_agent.slave_sqr); join_none
 ```
 
-A memory with valid ranges (`mem.add_valid_range`) makes the completer answer PSLVERR outside them, memory untouched, reported as `SLAVE_SEQ/OUT_OF_RANGE` unless `report_out_of_range` is cleared. Override `get_slverr(req)` / `get_num_wait_states(req)` /
+The wait-state range can also be set by assigning `slave_seq.min_ws` and
+`slave_seq.max_ws`, or by randomizing the sequence, before `start()`. A knob
+that nobody set (it is left at `WS_FROM_CFG`) takes
+`cfg.default_min_wait_states` / `cfg.default_max_wait_states` when the
+sequence starts. A subclass with a `body()` of its own calls
+`apply_default_wait_states()` first.
+
+A memory with valid ranges (`mem.add_valid_range`) makes the completer answer PSLVERR outside them (OKAY on an agent with `pslverr_en = 0`), memory untouched, reported as `SLAVE_SEQ/OUT_OF_RANGE` unless `report_out_of_range` is cleared. Override `get_slverr(req)` / `get_num_wait_states(req)` /
 `populate_data_from_mem(req)` / `write_transaction_to_mem(req)` for error
 injection, directed wait states, or a register-model completer.
 
@@ -122,6 +153,7 @@ injection, directed wait states, or a register-model completer.
 |---|---|---|
 | `OVIP_APB_MAX_ADDR_WIDTH` | 32 | Physical PADDR wire width (spec maximum) |
 | `OVIP_APB_MAX_DATA_WIDTH` | 32 | Physical PWDATA/PRDATA wire width (spec maximum) |
+| `OVIP_APB_MAX_STRB_WIDTH` | `OVIP_APB_MAX_DATA_WIDTH/8` | Physical PSTRB wire width, one bit per byte of the data bus |
 | `OVIP_APB_WAIT_STATES_MAX` | 15 | Soft cap on randomized `num_wait_states` |
 | `OVIP_APB_DELAY_UNTIL_NEXT_TRANS_MAX` | 30 | Soft cap on randomized inter-transfer gaps |
 | `OVIP_APB_INCLUDE_USER_DEFINES` | off | Include a user-supplied `ovip_apb_user_defines.sv` first |

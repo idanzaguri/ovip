@@ -10,11 +10,17 @@
 //     (per the signal-validity rules of Appendix A)
 //   - SETUP lasts exactly one cycle: PENABLE must be LOW on the SETUP cycle
 //     and HIGH on the following cycle (spec section 4.1)
+//   - a transfer starts with a SETUP cycle: PSEL and PENABLE must not both
+//     be HIGH while no transfer is in progress (spec section 4.1)
 //   - PENABLE must be deasserted at the end of the transfer (spec section 3.1)
 //   - PSEL must not drop before the transfer completes
 //   - PADDR/PWRITE/PWDATA/PSTRB/PPROT stable from SETUP through completion
 //     while PREADY extends the transfer (spec section 3.1.2)
 //   - PSTRB must be all-LOW during a read transfer (spec section 3.2)
+// The X/Z and stability checks of PWDATA cover the lanes whose PSTRB bit is
+// HIGH (Appendix A.1: the active write data lanes only), and every lane of
+// an agent with no PSTRB. cfg.check_undefined_data_lanes makes them cover
+// every lane inside the data width.
 //
 // Completer support: on the SETUP cycle the monitor forwards a copy of the
 // request through `response_req_port` so the slave sequence can build the
@@ -41,6 +47,12 @@ class ovip_apb_monitor extends uvm_monitor;
 	protected ovip_apb_data_t DATA_MASK;
 	protected ovip_apb_strb_t STRB_MASK;
 
+	// PWDATA, PADDR and PSTRB as sampled on the SETUP cycle, with their X
+	// and Z bits, for the stability check (the item holds 0 in their place).
+	protected logic [`OVIP_APB_MAX_DATA_WIDTH-1:0] setup_pwdata;
+	protected logic [`OVIP_APB_MAX_ADDR_WIDTH-1:0] setup_paddr;
+	protected logic [`OVIP_APB_MAX_STRB_WIDTH-1:0] setup_pstrb;
+
 	`uvm_component_utils(ovip_apb_monitor)
 
 	function new(string name = "ovip_apb_monitor", uvm_component parent);
@@ -56,6 +68,7 @@ class ovip_apb_monitor extends uvm_monitor;
 	extern virtual task          xz_select_check();
 	extern virtual function void check_request_payload_xz();
 	extern virtual function void check_response_payload_xz(bit is_write);
+	extern protected virtual function ovip_apb_data_t checked_pwdata_lanes(ovip_apb_strb_t strb);
 
 	// Bus tracker + supporting helpers.
 	extern virtual task          bus_monitor();
@@ -132,8 +145,22 @@ task ovip_apb_monitor::xz_select_check();
 endtask : xz_select_check
 
 
+// The bits of PWDATA that the X/Z and stability checks cover in a write with
+// the strobes `strb`: the lanes whose PSTRB bit is HIGH. Every lane inside
+// the data width when the agent has no PSTRB, or with
+// cfg.check_undefined_data_lanes.
+function ovip_apb_data_t ovip_apb_monitor::checked_pwdata_lanes(ovip_apb_strb_t strb);
+	ovip_apb_data_t lanes = '0;
+	if(cfg.check_undefined_data_lanes || !cfg.pstrb_en) return DATA_MASK;
+	for(int ii = 0; ii < cfg.data_width; ii++)
+		if(strb[ii]) lanes[ii*8 +: 8] = '1;
+	return lanes;
+endfunction : checked_pwdata_lanes
+
+
 // Signals that must be valid while PSEL is asserted (Appendix A): PADDR,
-// PENABLE, PWRITE, PPROT, PSTRB, plus PWDATA on writes.
+// PENABLE, PWRITE, PPROT, PSTRB, plus PWDATA on writes, on the lanes of
+// checked_pwdata_lanes.
 function void ovip_apb_monitor::check_request_payload_xz();
 	`OVIP_APB_MON_XZ_CHECK(penable, penable)
 	`OVIP_APB_MON_XZ_CHECK(pwrite, pwrite)
@@ -143,7 +170,7 @@ function void ovip_apb_monitor::check_request_payload_xz();
 		`OVIP_APB_MON_XZ_CHECK(pprot, pprot)
 	if(vif.monitor_cb.pwrite === 1'b1)
 	begin
-		if((^(vif.monitor_cb.pwdata & DATA_MASK)) === 1'bx)
+		if((^(vif.monitor_cb.pwdata & checked_pwdata_lanes(vif.monitor_cb.pstrb))) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "APB_MON/XZ_CHECK"}, "PWDATA contains X's or Z's during a write transfer.")
 		if(cfg.pstrb_en && (^(vif.monitor_cb.pstrb & STRB_MASK)) === 1'bx)
 			`uvm_error({MESSAGE_TAG, "APB_MON/XZ_CHECK"}, "PSTRB contains X's or Z's during a write transfer.")
@@ -164,13 +191,35 @@ endfunction : check_response_payload_xz
 // One track_transfer() call per transfer. `at_setup` chains back-to-back
 // transfers: when the post-completion cycle turns out to already be the next
 // SETUP cycle, the loop re-enters track_transfer without consuming an edge.
+// Between transfers, a cycle with PSEL and PENABLE both HIGH is an ACCESS
+// cycle with no SETUP cycle before it. It is reported on its first cycle
+// and not again while the two stay HIGH.
 task ovip_apb_monitor::bus_monitor();
 	bit at_setup = 0;
+	// PSEL and PENABLE were both HIGH on the last cycle, and it was reported.
+	bit access_reported = 0;
 	forever
 	begin
-		if(!at_setup)
-			@(vif.monitor_cb iff (vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable !== 1'b1));
+		while(!at_setup)
+		begin
+			@(vif.monitor_cb);
+			// A cycle sampled with PRESETn LOW starts nothing: rst_monitor
+			// ends this thread on the same edge, before or after it wakes.
+			if(vif.monitor_cb.presetn !== 1'b1) continue;
+			if(vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable !== 1'b1)
+				at_setup = 1;
+			else if(vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable === 1'b1)
+			begin
+				if(!access_reported)
+					`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PSEL and PENABLE HIGH with no transfer in progress: an ACCESS cycle must follow a SETUP cycle (spec section 4.1).")
+				access_reported = 1;
+			end
+			else
+				access_reported = 0;
+		end
 		track_transfer(at_setup);
+		// PENABLE still HIGH after a completion is reported by track_transfer.
+		access_reported = (vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable === 1'b1);
 	end
 endtask : bus_monitor
 
@@ -184,9 +233,14 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 
 	check_request_payload_xz();
 	tr = sample_request();
+	setup_pwdata = vif.monitor_cb.pwdata;
+	setup_paddr  = vif.monitor_cb.paddr;
+	setup_pstrb  = vif.monitor_cb.pstrb;
+	// first, so the request forwarded to the slave sequence carries
+	// monitor_error
+	check_read_strb(tr);
 	analysis_port_cont.write(tr);
 	send_rsp_req(tr);
-	check_read_strb(tr);
 
 	// SETUP lasts exactly one cycle: the next cycle must be ACCESS.
 	@(vif.monitor_cb);
@@ -212,6 +266,7 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 		check_request_payload_xz();
 		`OVIP_APB_MON_XZ_CHECK(pready, pready)
 		if(!request_stable(tr)) tr.monitor_error = 1;
+		check_read_strb(tr);
 
 		if(vif.monitor_cb.pready === 1'b1) break;
 
@@ -235,6 +290,7 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 	// End-of-transfer rule: PENABLE must be deasserted on the next cycle
 	// (which is either IDLE or the next transfer's SETUP cycle).
 	@(vif.monitor_cb);
+	if(vif.monitor_cb.presetn !== 1'b1) return;   // a reset: no check, and no next SETUP (see above)
 	if(vif.monitor_cb.penable === 1'b1)
 		`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PENABLE still asserted on the cycle after the transfer completed (spec section 3.1: PENABLE is deasserted at the end of the transfer).")
 	at_setup = (vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable !== 1'b1);
@@ -244,7 +300,7 @@ endtask : track_transfer
 function ovip_apb_trans ovip_apb_monitor::sample_request();
 	ovip_apb_trans tr = ovip_apb_trans::type_id::create("apb_tr");
 	tr.bus_width  = cfg.data_width;
-	tr.setup_time = $time;
+	tr.setup_time = $realtime;
 	tr.addr  = vif.monitor_cb.paddr & ADDR_MASK;
 	tr.write = (vif.monitor_cb.pwrite === 1'b1);
 	tr.prot  = cfg.pprot_en ? ovip_apb_prot_t'(vif.monitor_cb.pprot) : '0;
@@ -262,6 +318,7 @@ endfunction : sample_request
 
 
 // Spec section 3.2: all PSTRB bits must be LOW during a read transfer.
+// Called on the SETUP cycle and on every ACCESS cycle.
 function void ovip_apb_monitor::check_read_strb(ovip_apb_trans tr);
 	if(!cfg.pstrb_en || tr.write) return;
 	if((vif.monitor_cb.pstrb & STRB_MASK) !== '0)
@@ -277,9 +334,10 @@ endfunction : check_read_strb
 // against the SETUP-cycle snapshot held in `tr`.
 function bit ovip_apb_monitor::request_stable(ovip_apb_trans tr);
 	bit ok = 1;
-	if((vif.monitor_cb.paddr & ADDR_MASK) !== tr.addr)
+	// against the SETUP cycle values: an X or Z bit that stays is not a change
+	if((vif.monitor_cb.paddr & ADDR_MASK) !== (setup_paddr & ADDR_MASK))
 	begin
-		`uvm_error({MESSAGE_TAG, "APB_MON/STABILITY"}, $sformatf("PADDR changed during the transfer (setup=0x%0h, now=0x%0h).", tr.addr, vif.monitor_cb.paddr & ADDR_MASK))
+		`uvm_error({MESSAGE_TAG, "APB_MON/STABILITY"}, $sformatf("PADDR changed during the transfer (setup=0x%0h, now=0x%0h).", setup_paddr & ADDR_MASK, vif.monitor_cb.paddr & ADDR_MASK))
 		ok = 0;
 	end
 	if(bit'(vif.monitor_cb.pwrite) !== tr.write)
@@ -294,12 +352,15 @@ function bit ovip_apb_monitor::request_stable(ovip_apb_trans tr);
 	end
 	if(tr.write)
 	begin
-		if((vif.monitor_cb.pwdata & DATA_MASK) !== tr.wdata)
+		// the lanes of the SETUP cycle's strobes; an X or Z bit that stays
+		// is not a change
+		ovip_apb_data_t lanes = checked_pwdata_lanes(tr.strb);
+		if((vif.monitor_cb.pwdata & lanes) !== (setup_pwdata & lanes))
 		begin
 			`uvm_error({MESSAGE_TAG, "APB_MON/STABILITY"}, "PWDATA changed during a write transfer.")
 			ok = 0;
 		end
-		if(cfg.pstrb_en && (vif.monitor_cb.pstrb & STRB_MASK) !== tr.strb)
+		if(cfg.pstrb_en && (vif.monitor_cb.pstrb & STRB_MASK) !== (setup_pstrb & STRB_MASK))
 		begin
 			`uvm_error({MESSAGE_TAG, "APB_MON/STABILITY"}, "PSTRB changed during a write transfer.")
 			ok = 0;
@@ -310,7 +371,7 @@ endfunction : request_stable
 
 
 function void ovip_apb_monitor::close_and_publish(ovip_apb_trans tr);
-	tr.complete_time        = $time;
+	tr.complete_time        = $realtime;
 	tr.transaction_finished = 1;
 	`uvm_info({MESSAGE_TAG, "APB_MON"}, tr.convert2string(), UVM_LOW)
 	analysis_port.write(tr);

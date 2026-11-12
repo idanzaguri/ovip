@@ -127,6 +127,15 @@ function void ovip_mem_space::add_striped_region(string name, addr_t base, addr_
 		`uvm_fatal("MEM_SPACE/BAD_REGION", $sformatf("region '%s': a striped region needs at least one sub", name))
 		return;
 	end
+	// each sub holds chunk (k div N) of its own at one place, so a sub listed
+	// twice would get two system chunks on the same bytes
+	foreach (stripe_subs[i])
+		for (int j = i + 1; j < stripe_subs.size(); j++)
+			if (stripe_subs[i] == stripe_subs[j])
+			begin
+				`uvm_fatal("MEM_SPACE/BAD_REGION", $sformatf("region '%s': sub %0d is listed twice in the stripe", name, stripe_subs[i]))
+				return;
+			end
 	r.name = name; r.base = base; r.size = size; r.subs = stripe_subs; r.sub_base = sub_base; r.granule = granule;
 	if (!insert_region(r)) return;
 	// each sub holds its chunks packed from sub_base: chunk k lands on sub
@@ -167,8 +176,11 @@ function bit ovip_mem_space::insert_region(region_t r);
 			`uvm_fatal("MEM_SPACE/BAD_REGION", $sformatf("region '%s': sub %0d does not exist (%0d subs)", r.name, r.subs[i], subs.size()))
 			return 0;
 		end
+	// offsets only, no base + size: a region may end at the top of the
+	// address space, where that sum wraps to 0
 	foreach (regions[i])
-		if (r.base < regions[i].base + regions[i].size && regions[i].base < r.base + r.size)
+		if ((r.base >= regions[i].base) ? (r.base - regions[i].base < regions[i].size)
+		                                : (regions[i].base - r.base < r.size))
 		begin
 			`uvm_fatal("MEM_SPACE/OVERLAP", $sformatf("region '%s' [0x%0h, 0x%0h) overlaps region '%s' [0x%0h, 0x%0h)",
 				r.name, r.base, r.base + r.size, regions[i].name, regions[i].base, regions[i].base + regions[i].size))

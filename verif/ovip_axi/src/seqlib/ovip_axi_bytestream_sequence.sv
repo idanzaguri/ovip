@@ -14,11 +14,14 @@
 //            packet into (or out of) one data register: beat k carries bytes
 //            k*size .. k*size+size-1 of it (fewer when `addr` is unaligned).
 //            A burst has at most 16 beats (AXI4).
-// On an AXI4-Lite port every burst is one beat of the bus width.
+// On an AXI3 port every burst has at most 16 beats, and on an AXI4-Lite port
+// every burst is one beat of the bus width.
 //
 // After body() returns, `trans` holds the bursts in order with what the
 // driver put back: `resp` (BRESP, or the worst RRESP), `resp_beats` on a
-// read. worst_resp() and all_okay() sum them up.
+// read. worst_resp() and all_okay() sum them up. A burst that a reset ended
+// comes back with `dropped_by_reset` set and no valid response: all_okay()
+// is then 0, and a read holds the bytes that came before the reset.
 //
 // The bursts are sent back to back and then drained, so the driver pipelines
 // them up to the agent's outstanding limit. They share `id`, which keeps the
@@ -37,7 +40,8 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 	int size = -1;
 
 	// The largest AxLEN of one burst. -1 (the default) is what the port
-	// allows: 2^len_width - 1, at most 255, at most 15 on FIXED, 0 on Lite.
+	// allows: 2^len_width - 1, at most 255, at most 15 on FIXED and on AXI3,
+	// 0 on Lite.
 	// A smaller value caps the bursts, for a slave or a fabric that takes less.
 	int max_len = -1;
 
@@ -80,7 +84,10 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 		super.new(name);   // the base leaves the response queue unbounded
 	endfunction
 
-	virtual task pre_body();
+	// The settings of a run, from the agent's config and the caller's fields.
+	// body() calls it first, so it also runs for a sequence that a parent
+	// starts as its child.
+	virtual function void init_stream();
 		auto_byte_lanes_alignment = p_sequencer.cfg.auto_byte_lanes_alignment;
 		bus_width = int'(p_sequencer.cfg.bus_width);
 
@@ -97,6 +104,7 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 			len_cap = (1 << p_sequencer.cfg.len_width) - 1;
 			if(len_cap > 255) len_cap = 255;
 			if(burst == OVIP_AXI_BURST_FIXED && len_cap > 15) len_cap = 15;
+			if(p_sequencer.cfg.protocol_type == OVIP_PROTOCOL_AXI3 && len_cap > 15) len_cap = 15;
 			if(max_len >= 0 && max_len < len_cap) len_cap = max_len;
 		end
 		burst_size = 1 << size;
@@ -117,7 +125,7 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 			data = {};
 		end
 		trans.delete();
-	endtask : pre_body
+	endfunction : init_stream
 
 
 	// INCR: the stream from `addr` upward, cut at 4 KiB and at len_cap+1 beats
@@ -169,6 +177,8 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 	virtual function void split_addr_range_to_axi_chunks();
 		axi_addr.delete();
 		axi_len.delete();
+		// a stream of no bytes makes no burst
+		if(((tr_type == OVIP_AXI_WRITE_TRANS) ? data.size() : read_size) <= 0) return;
 		if(burst == OVIP_AXI_BURST_FIXED) split_fixed();
 		else                              split_incr();
 	endfunction : split_addr_range_to_axi_chunks
@@ -251,13 +261,16 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 		return r;
 	endfunction : worst_resp
 
+	// 1 when every burst completed and answered OKAY
 	function bit all_okay();
+		foreach(trans[ii]) if(trans[ii].dropped_by_reset) return 0;
 		return worst_resp() == OVIP_AXI_RESP_OKAY;
 	endfunction : all_okay
 
 
 	virtual task body();
 		ovip_axi_trans rsp;
+		init_stream();
 		split_addr_range_to_axi_chunks();
 
 		foreach(axi_addr[ii])

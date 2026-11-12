@@ -29,6 +29,29 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 		super.new(name);
 	endfunction
 
+	// A random address for a burst of len+1 beats of 2**size bytes, inside
+	// addr_width: an INCR burst stays inside its 4KB page, a WRAP burst
+	// starts aligned to its beat size.
+	protected function ovip_axi_addr_t random_addr(int len, ovip_axi_size_t size);
+		ovip_axi_addr_t  a     = $urandom & ((ovip_axi_addr_t'(1)<<p_sequencer.cfg.addr_width)-1);
+		longint unsigned beat  = longint'(1) << size;
+		longint unsigned total = (len + 1) * beat;
+		if(burst == OVIP_AXI_BURST_WRAP)
+			a -= a % beat;
+		else if(burst == OVIP_AXI_BURST_INCR)
+		begin
+			longint unsigned page_off = (a & 'hFFF) & ~(beat - 1);   // where the first beat's container starts in the page
+			if(total > 'h1000)
+			begin
+				`uvm_warning("BAD_USE", $sformatf("an INCR burst of %0d beats of %0dB does not fit in a 4KB page", len + 1, beat))
+				a -= page_off;
+			end
+			else if(page_off + total > 'h1000)
+				a -= page_off + total - 'h1000;
+		end
+		return a;
+	endfunction : random_addr
+
 	virtual task body();
 		tr_pool = new[num_trans];
 
@@ -37,10 +60,6 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 		if(!p_sequencer.cfg.auto_byte_lanes_alignment)
 			`uvm_fatal("BAD_USE", "ovip_axi_simple_wr_bursts_seq need auto_byte_lanes_alignment=1 in order to drive good strb")
 
-		while(addr.size() < num_trans)
-		begin
-			addr.push_back($urandom);
-		end
 		while(len.size() < num_trans)
 		begin
 			len.push_back($urandom_range(max_burst_len, min_burst_len));
@@ -48,6 +67,10 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 		while(size.size() < num_trans)
 		begin
 			size.push_back(ovip_axi_size_t'($clog2(p_sequencer.cfg.bus_width)));
+		end
+		while(addr.size() < num_trans)
+		begin
+			addr.push_back(random_addr(len[addr.size()], size[addr.size()]));
 		end
 		for(int ii=0; id.size()<num_trans; ii++)
 		begin
@@ -94,9 +117,10 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 					// fixing bad strb on first beat on case of unaligned access
 					// (for FIXED burst type it applys for all transfers)
 					// BTW, this sequence assume auto_byte_lanes_alignment
+					// The beat carries burst_size - addr%burst_size bytes, so it keeps that many strobe bits.
 					if((tr.strb_beats.size() == 1 || burst==OVIP_AXI_BURST_FIXED) && tr.addr%burst_size != 0)
 					begin
-						tr.strb_beats[$] >>= burst_size-(tr.addr%burst_size);
+						tr.strb_beats[$] >>= (tr.addr%burst_size);
 					end
 
 					if(tr.data_delay.size()==0 && min_initial_delay_between_beats != -1)

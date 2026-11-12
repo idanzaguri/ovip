@@ -9,6 +9,409 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.6.0] -- 2026-11-12
+
+### Added -- VIP
+
+- On AXI4 the monitor reports a reserved AxCACHE value, one that Table A4-5
+  of the spec does not list (`0b0100`, `0b0101`, `0b1000`, `0b1001`,
+  `0b1100`, `0b1101`), as `AXI_MON/WR` or `AXI_MON/RD`, when the agent has
+  the signal (`awcache_en`, `arcache_en`). AxCACHE was sampled and never
+  checked. AXI3 agents are not checked.
+- The monitor checks the exit from reset: a VALID that is high on the first
+  rising clock edge where ARESETn is high after a reset is
+  `AXI_MON/BAD_VALIDATOR` (spec A3.1.2, Figure A3-1). It was not checked.
+  The channel threads of the monitor started on that edge and waited for
+  the next one, so a handshake on it was lost and the errors that followed
+  named other things. They take a handshake on that edge now. The check
+  runs once ARESETn was sampled low, and reports a `1` only.
+- On AXI3 the monitor checks WID. An X or Z on WID at a W handshake is
+  `AXI_MON/XZ_CHECK`, and a change of WID while WVALID waits for WREADY is
+  `AXI_MON/STABILITY_CHECK`. WID had neither check: an X on it was read as
+  ID 0, the beat went to a wrong write, and the errors that followed did not
+  name WID.
+- `ovip_axi_trans.dropped_by_reset`: 1 on an item that the master driver
+  gave back at a reset before its transaction completed, 0 on every item
+  that completed. The driver clears it when it takes an item.
+- `ovip_axi_master_driver`: `held_items[$]`, the items the driver took from
+  the sequencer and did not give back yet. `return_item(tr)` gives a
+  completed item back and takes it off that list. `return_dropped_items()`
+  gives back the rest after a reset. `ovip_axi_base_driver` has
+  `return_dropped_items()` as an empty hook that `run_phase` calls after a
+  reset. A driver subclass that completes an item itself calls
+  `return_item(tr)` where it called `seq_item_port.put(tr)`.
+
+### Changed -- VIP
+
+- AXI3 write data order follows spec A5.3.3: the first W beat of each write
+  comes in the order of the AW handshakes.
+  - The W scheduler of a master starts the data of a write only when every
+    write before it in its queue has started. With `wr_out_of_order_depth`
+    above 1 it could start the data of a later AW first, which AXI3
+    forbids. The beats of the writes that have started still interleave,
+    up to `wr_interleave_depth`. The new `cfg.allow_wdata_out_of_aw_order`
+    (master only, AXI3 only, default `0`) brings the old scheduling back,
+    to inject the error.
+  - The monitor reports a first W beat that is out of the AW order as
+    `AXI_MON/WDATA_OOO`, also when the beat comes before its own AW. It
+    tested every W beat against `wr_out_of_order_depth`: with a depth of 1
+    legal interleaving was reported, and with a larger depth a first W beat
+    ahead of an older AW passed. The monitor no longer uses
+    `wr_out_of_order_depth`, and the text of `AXI_MON/WDATA_OOO` changed.
+  - A bench whose AXI3 master sent write data ahead of older AWs through
+    `wr_out_of_order_depth` now gets the data in AW order. To keep the old
+    traffic it sets `allow_wdata_out_of_aw_order` and expects the error.
+- The monitor tests BVALID and RVALID against the handshakes they depend
+  on (spec A3.3.1) on the first clock edge where they are high. It tested
+  them at their own handshake, so a BVALID before the last W handshake, and
+  an RVALID before the AR handshake, passed when the response was accepted
+  late enough. The handshakes must be on an earlier edge: a response on the
+  edge of the handshake it depends on is an error, where the result
+  depended on the order of the monitor's threads. The texts of
+  `AXI_MON/BRESP` and `AXI_MON/RDATA` changed with it: "Unexpected BRESP:
+  ..." and "Data phase encountered without a corresponding address phase"
+  are now "BVALID is high for ID ..., and no write with this ID ..." and
+  "RVALID is high for ID ..., and no read with this ID ...". A bench that
+  matches the old texts has to match the new ones.
+- The README says that the monitor expects the AW handshake before the
+  write response on AXI3 too, which is stricter than AXI3 requires (spec
+  A3.3.2), and the `AXI_MON/BRESP` message says it on an AXI3 agent. The
+  check itself is as it was.
+- The X/Z check and the stability check of the monitor skip the data bytes
+  that AXI leaves undefined: a WDATA byte whose WSTRB bit is low, and an
+  RDATA byte lane that the read beat does not use. Both checks covered the
+  whole data bus, so a DUT that leaves an X under a low strobe or on an
+  unused lane failed, and the only way out was
+  `OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS`, which removes every
+  payload check. The new `cfg.check_undefined_data_lanes` (default `0`)
+  brings the whole-bus checks back: a bench that wants them sets it to `1`.
+- The four phase time stamps of `ovip_axi_trans` (`addr_phase_time`,
+  `data_phase_begin_time`, `data_phase_time`, `resp_phase_time`) are
+  `realtime` and the monitor fills them from `$realtime`. They were `time`,
+  filled from `$time`, which rounds to a whole ns in `ovip_axi_pkg`: on a
+  clock whose edges fall on half a ns every stamp was 0.5 ns late, and the
+  transaction log showed 9.000ns for a transfer at 8.500ns. Code that copies
+  a stamp into a `time` variable still gets the rounded value. Declare the
+  variable `realtime` to keep the fraction.
+- The transaction log prints its times in ns with three decimals
+  (`17.500ns`) by itself, and `ovip_axi_trans_logger` no longer calls
+  `$timeformat(-9, 3, "ns", 0)`. An agent with `enable_trans_log` changed
+  the `%t` format of the whole simulation before. A bench that relied on it
+  calls `$timeformat` itself.
+- After a reset the master driver gives back every item it took from the
+  sequencer and did not complete: with `seq_item_port.put()`, with
+  `dropped_by_reset` set, one at a time, in the order it took them. Before,
+  it dropped them with no put, so a sequence in `get_response()` or
+  `wait_for_responses()` waited for ever and a bench had to kill it. Such
+  a sequence goes on now. What to do: a sequence that uses `resp` or the
+  read data of a response checks `dropped_by_reset` first. A bench that
+  starts new sequences after a reset still kills the old ones, or they go
+  on beside the new ones. `ovip_axi_bytestream_sequence::all_okay()` is 0
+  when a reset dropped one of its bursts. README "A reset while items are
+  in flight".
+- AXI3 agents enforce the AXI3 burst length: 16 transfers at most, for
+  every burst type (spec A3.4.1). Nothing limited it before. The master
+  driver refuses an item with `len` above 15 (`TR_CHK`, then UVM_FATAL
+  unless `trust_me_i_am_an_engineer` is set). The monitor reports a longer
+  INCR burst ("The length of an AXI3 burst must not exceed 16") and marks
+  it `monitor_error`, so the base slave sequence answers SLVERR.
+  `ovip_axi_bytestream_sequence` cuts its bursts to 16 beats. What to do:
+  a bench that sends longer bursts on agents left at the default
+  `protocol_type` sends AXI4 traffic, and sets
+  `protocol_type = OVIP_PROTOCOL_AXI4` on both agents. `len_width` stays as
+  it is: `check_config` does not require 4 on AXI3.
+- `check_config` reports an AXI4-Lite agent whose `bus_width` is not 4B or
+  8B: AXI4-Lite has a data bus of 32 or 64 bits (spec B1.1.2). It took any
+  width before. What to do: give an AXI4-Lite agent one of the two widths.
+- `ovip_axi_scoreboard` reports an actual transaction with no expected one
+  (`AXI_SB/UNEXPECTED`) at `check_phase`, where it reported it on arrival.
+  See the fix below. What to do: nothing, unless a bench relied on the
+  time of that message.
+- CONTRIBUTING.md lists four more wanted features: exclusive access, AXI3
+  locked access, WUSER and RUSER per beat, and the low-power interface.
+
+### Fixed -- VIP
+
+- Every `AXI_MON` message ID of the monitor carries the `agent_tag` prefix.
+  The X/Z check, the stability check, `AXI_MON/INCOMPLETE_RD_TRANS`,
+  `AXI_MON/INCOMPLETE_WR_TRANS`, the `AXI_MON/INVALID_WSTRB` of a single
+  beat and the AXI4-Lite EXOKAY error were reported without it, so with two
+  tagged agents these IDs did not name their agent. With an empty
+  `agent_tag` no ID changes.
+- The X/Z check and the stability check of RRESP run on every R beat and
+  compare the RRESP of the cycle. They ran only on a beat with RLAST, and
+  the stability check compared `resp` of its two sampling items, which is
+  the worst response an item has ever sampled. An X or a change of RRESP on
+  a beat that is not the last was not reported, and the X was stored as
+  OKAY. After one stalled SLVERR beat a later change was not reported, and
+  after one real change every later stalled last beat was reported twice.
+- The monitor counts an outstanding write down only when its response
+  matched a write. A BRESP with no write took the count below zero, and
+  with `num_outstanding_wr_transactions` set every later address was
+  reported as `AXI_MON/OUTSTANDING_EXCEED` with 4294967295 writes. The
+  message of the total limit prints `num_outstanding_transactions`, where
+  it printed `num_outstanding_rd_transactions`.
+- The monitor reports a burst with one beat too many in every order of the
+  phases. An xLAST after beat AxLEN+1 was not reported, and the beats of a
+  write whose data starts before its address were counted at the AW only
+  when WLAST had come. Such a write with AWLEN+1 beats and no WLAST, then
+  one more beat with WLAST, passed. Now the AW reports "Missing xLAST" and
+  the late beat reports "xLAST was asserted on transfer #N", for a write
+  and for a read.
+- The monitor writes an item to `analysis_port_cont` after it sampled the
+  first phase of the transaction. `new_transaction()` wrote it right after
+  it made the item, with no field set: a write arrived as
+  `OVIP_AXI_READ_TRANS` with no address. The write is in the new
+  `send_new_transaction()`, which the channel threads call. A subclass
+  whose `new_transaction()` writes to the port itself is not changed by it.
+- `cfg.tr_timeout_us = 0` turns the transaction watchdog of the monitor
+  off. It ended the simulation with `AXI_MON/TIMEOUT` on the first
+  transaction. The README documents the field, which it did not name: the
+  unit is microseconds of simulation time, the default is 50, and the
+  watchdog ends the run with a `UVM_FATAL`, in a passive monitor too.
+- `ovip_axi_base_slave_sequence` sets up its memory backing at the start
+  of `body()` too, in the new `setup_mem_backing()`. It did so in
+  `pre_body()` only, which a start with `call_pre_post = 0` skips, as the
+  `uvm_do` macros do for a child sequence: the first request then hit a
+  null handle. A subclass whose `body()` does not call `super.body()` and
+  that is started this way calls `setup_mem_backing()` itself.
+- `ovip_axi_base_slave_sequence` serves a request at the edge of a valid
+  range that starts or ends inside a 4-byte memory word. `request_in_range`
+  tests the bytes of the burst and found it in range, and the write and
+  the read then went through `ovip_mem::write()` and `read()`, which refuse
+  a word that is partly outside: the request was answered OKAY, the write
+  was dropped, the read returned 0, and the memory reported
+  `MEM/OUT_OF_RANGE`. Such a word now goes byte by byte through the
+  bytestream functions of the memory, in the new `write_word_to_mem()` and
+  `read_word_from_mem()`. A word that is all valid goes through `write()`
+  and `read()` as before.
+- Two message texts of the monitor. `AXI_MON/AWLEN_MISMATCH` printed one
+  transfer less than the data phase had: 11 beats were "a total of 10
+  transfers". "Missing xLAST" printed AxLEN plus 1 under the name AWLEN,
+  also for a read: an AxLEN of 1 was "AWLEN=2", and is "AxLEN=1" now.
+- `ovip_axi_simple_wr_bursts_seq` kept the wrong number of strobe bits on a
+  beat that starts inside its size: the first beat of an unaligned burst,
+  and every beat of an unaligned FIXED burst. With the address `u` bytes
+  into the beat it kept `u` bits, and the beat carries `size - u` bytes. A
+  beat that starts above half its size drove WSTRB on lanes outside the
+  transfer (`AXI_MON/INVALID_WSTRB` on a narrow transfer), and one that
+  starts below half never strobed its upper bytes. It keeps `size - u`
+  bits now.
+- The master driver refused a read whose `data_delay` has entries.
+  `check_trans_validity` compared `data_delay.size()` with
+  `data_beats.size()` for a read too, and a read request has no data
+  beats. Every randomized read ended in UVM_FATAL, because the constraints
+  of `ovip_axi_trans` give one `data_delay` entry per beat. The check
+  applies to writes only now.
+- `ovip_axi_scoreboard` depended on the arrival order: an actual
+  transaction that arrived before its expected one was `AXI_SB/UNEXPECTED`,
+  and the expected one became `AXI_SB/ORPHAN`. Two monitors publish a
+  transaction when it completes, and it completes on the slave side of a
+  DUT first, so the wiring of the header (expected from the master side,
+  actual from the slave side) failed on every transaction. An actual item
+  now waits in a FIFO per direction and ID, as the expected items do, and
+  is compared when its expected item arrives. `check_phase` reports what is
+  left on either side. The compare is in the new protected function
+  `compare_pair()`. README: a new section "Scoreboard".
+- `ovip_axi_simple_rd_bursts_seq` gave burst `ii` the ID `ii` with no
+  mask, so more bursts than `2^rd_id_width` ended in UVM_FATAL at the first
+  ID that does not fit. It masks the ID with `rd_id_width` now, as
+  `ovip_axi_simple_wr_bursts_seq` does with `wr_id_width`.
+- `ovip_axi_bytestream_sequence` sent one burst for a stream of no bytes.
+  A read with `read_size` 0 read one beat at address 0, and a write with
+  empty `data` ended in UVM_FATAL (a burst with no data beats). Such a
+  stream sends no burst now, and the sequence returns at once.
+- `ovip_axi_agent` was registered with `uvm_component_param_utils`, the
+  macro for a class with parameters, which gives the factory no type name.
+  `get_type_name()` returned "uvm_agent", and a factory override or a
+  creation by the name `ovip_axi_agent` failed. It uses
+  `uvm_component_utils` now.
+- README "Address & Data Channels Timing Dependency": with
+  `DATA_START_EV_BEFORE_ADDR`, AWVALID rises `addr_phase_delay` cycles
+  after WVALID, and one cycle after it at the least, so 0 and 1 give the
+  same gap. The text did not say so, and the figure showed a gap of 3
+  cycles under the label `addr_phase_delay = 2`. Its label is 3 now, in
+  `wavedrom/data_start_ev_before_addr.json5` and in the `.svg`. The driver
+  is not changed.
+- README "Byte-Lane Alignment": with `auto_byte_lanes_alignment = 1` the
+  user fills `strb_beats[i]` at bit 0, one bit per byte the beat carries,
+  and the driver shifts it to the lane. The text said that the strobes are
+  derived from `size` and the address, and the table called
+  `strb_beats[0]` "don't care (VIP computes)". The driver never computed or
+  masked them: a write with no `strb_beats` is UVM_FATAL, and one with all
+  bits set drives WSTRB outside the transfer.
+- README "Randomization Limits" showed
+  `tr.randomize() with { addr inside {...}; len < 4; }`, and the 0.1.0
+  notes call `ovip_axi_trans` constrained-random ready. Such an item is
+  not legal for an agent. The constraints of the item do not know the
+  agent's widths, its bus width, its protocol or the 4KB rule, and the
+  master driver ends the run on most of what comes out. The new part
+  "What `randomize()` leaves to you" lists what to constrain: `id`, the
+  user fields, `addr` and the data inside the widths, `size`, `len`, the
+  4KB page, the strobes and `data_start_event`. Its example is an item
+  that the driver takes. No constraint was added to the item.
+- README: `protocol_type`, `interface_type`, `len_width`,
+  `wr_resp_out_of_order_depth` and `trust_me_i_am_an_engineer` were in no
+  document. The new section "Agent Configuration" has the first three, the
+  scheduler table has the fourth, and "Items the driver refuses" has the
+  fifth. `protocol_type` defaults to AXI3, and the config class now writes
+  that default out. Set it on every agent: an agent left at the default
+  beside an AXI4 master never completes a write with a non-zero AWID.
+- `ovip_axi_bytestream_sequence` did its setup in `pre_body()`, which UVM
+  does not call for a sequence started with `call_pre_post = 0`. That is
+  how `uvm_do` and `uvm_send` start a child sequence. The bytes per beat
+  then stayed 0, the split of the stream never ended, and the simulation
+  hung in zero time. The setup is now `init_stream()`, which `body()`
+  calls first. A subclass that overrode `pre_body()` to change the setup
+  overrides `init_stream()` now.
+- `ovip_axi_agent_config` had no `do_copy`, so `cfg.clone()` and `copy()`
+  gave a config with every field at its default. They carry every field
+  now, `check_undefined_data_lanes` and `allow_wdata_out_of_aw_order`
+  among them.
+- `check_config` took a config with no `bus_width` or no `addr_width`
+  (both have no default) and a scheduler depth of 0 or less. It reports
+  each of them with `AXI_CFG` now. The checks that a depth is 1 on
+  AXI4-Lite, and on an AXI4 master, report a depth above 1 only, so a
+  depth of 0 gets one error. On AXI4-Lite an unset `bus_width` gets the
+  new error only, not the one for a width other than 4B or 8B.
+- The master driver filled `data_beats` of a read from its R beats on
+  top of what the item held, so a read item sent a second time kept the
+  beats of the first send past its own: sent with 4 beats and then with 2,
+  it came back with 4. The driver now clears `data_beats` of every read it
+  accepts.
+- `ovip_axi_simple_wr_bursts_seq` and `ovip_axi_simple_rd_bursts_seq` drew
+  a burst with no `addr` at a fully random address. An INCR burst then
+  crossed a 4KB page when the address was near the page end, and a WRAP
+  burst was not aligned to its beat size, and the monitors reported both.
+  The random address now keeps an INCR burst inside its 4KB page and
+  aligns a WRAP burst to its beat size. An INCR burst longer than 4KB
+  cannot fit: it starts at the page start, with a `BAD_USE` warning. An
+  `addr` that the caller gives is used as it is.
+- At reset the master driver and the slave driver drove the VALID and
+  READY of all five channels to 0, also on an agent whose
+  `interface_type` is read-only or write-only. Such an agent drove the
+  wires of channels it does not have, where another component may drive
+  them. Each driver now drives only the channels of its `interface_type`.
+- Documentation. CONTRIBUTING listed WRAP burst support as a wanted
+  feature: WRAP is implemented, and the item is removed. The README named
+  the path of the sequences `src/seq/`: it is `src/seqlib/`. It also said
+  that every source file opens with a short header, which is not true;
+  it says "some" now.
+- README: `OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS` turns off
+  the X/Z checks on the payload signals and the stability checks. The
+  X/Z check on every VALID and READY stays on, which the README did not
+  say. The header of `ovip_axi_base_slave_sequence.sv` named a
+  `uvm_fatal` for FIXED and WRAP bursts wider than a memory word, which
+  the sequence does not have; the sentence is removed.
+- The example `03_axi3_write_interleaving` said that the slave monitor
+  enforces `wr_interleave_depth` and `wr_out_of_order_depth`. The monitor
+  checks that the first W beats follow the AW order (`AXI_MON/WDATA_OOO`)
+  and that the interleaving stays inside `wr_interleave_depth`
+  (`AXI_MON/INTERLEAVING_EXCEED`), and does not use
+  `wr_out_of_order_depth`. The README and the comment of the example say
+  that now, and the example no longer sets `wr_out_of_order_depth` on its
+  slave.
+- README "Bytes under a low strobe" said that by default the master drives
+  zero on a WDATA byte whose WSTRB bit is low. The master drives the data
+  of the sequence there: on a byte under a strobe hole the byte of
+  `data_beats`, and above a beat's window the bits of `data_beats` above
+  the beat's bytes. Only the lanes below a shifted beat are zero. The
+  text says that now. The driver is not changed.
+
+### Added -- testbench
+
+- `ovip_axi_slave_seq_call_pre_post_test`: the base slave sequence started
+  with `call_pre_post = 0` serves a write and its read-back.
+- `ovip_axi3_wr_in_aw_order_test`: the traffic of `ovip_axi3_wr_ooo_test`
+  with a reorder window of ten writes and without the error injection bit.
+  The first W beats follow the AW order and no monitor reports anything.
+- `ovip_axi_trans_log_test`: an item stamped at 17.5 ns prints `17.500ns`
+  in `log_line()`, and the lines that a master's logger writes carry their
+  five times in that form and in order.
+- `ovip_axi_monitor_checks_test`: scripted traffic on two passive agents
+  with the tags `M` and `S`, for the checks of the monitor that the VIP's
+  own drivers do not reach. Every expected error names its monitor by the
+  tag in the message ID. It also changes an undefined and a defined byte of
+  a stalled W beat and R beat, with `check_undefined_data_lanes` at 0 and
+  at 1. `ovip_axi3_monitor_checks_test` is the same on AXI3.
+- `ovip_axi_simple_bursts_seq_test`: unaligned writes of 2B, 4B and 8B
+  beats through `ovip_axi_simple_wr_bursts_seq`, INCR and FIXED, at an
+  offset below, at and above half the beat. It checks the strobes of the
+  short beats and the bytes in the memory. Then six reads through
+  `ovip_axi_simple_rd_bursts_seq` on agents with 2 read ID bits. Then
+  writes and reads with no `addr`, INCR of 256 beats and WRAP of 16, each
+  inside its 4KB page or aligned to its beat.
+- `ovip_axi_master_item_test`: reads built by hand with one `data_delay`
+  entry per beat complete with the bytes of the memory. The example of the
+  README section "Byte-Lane Alignment" gives the WDATA and WSTRB that the
+  section shows. A read item sent again with fewer beats comes back with
+  the beats of the second read only.
+- `ovip_axi_mid_test_reset_dropped_items_test`: a sequence with twelve
+  items in every stage of the master driver gets each one back once at a
+  reset, eleven of them with `dropped_by_reset`. It then runs traffic
+  after the release and after a second reset. A bytestream write that a
+  third reset cuts returns with `all_okay()` 0, and its bytes go through
+  afterwards.
+- `ovip_axi_scoreboard_test`: a scoreboard on the two monitors of the
+  testbench in each role matches every transaction, and one fed by hand
+  shows a match in both arrival orders, a mismatch, an orphan and an
+  unexpected item.
+- `ovip_axi_agent_config_test`: `check_config` on configs built by hand.
+  A new config is AXI3 with the full interface, and an AXI4-Lite config is
+  taken with a 4B or 8B bus only. The agent has its type name in the
+  factory. A clone of a config with every field away from its default has
+  every value. An unset `bus_width` or `addr_width` and each depth at 0
+  give their error. The two agents of the test have a read-only interface,
+  and the VALID and READY wires of the write channels stay Z.
+- `ovip_axi3_burst_len_test`: on AXI3 agents a byte stream goes in bursts
+  of 16 beats at most, a burst of 16 beats completes, and a write and a
+  read of 32 beats give the driver's warning, the error of both monitors
+  and SLVERR.
+
+### Changed -- testbench
+
+- `ovip_axi3_wr_ooo_test` is a negative test: its master sets
+  `allow_wdata_out_of_aw_order`, and both monitors report the nine first W
+  beats that are out of the AW order. `ovip_axi3_wr_interleaving_test`
+  expects 10 `AXI_MON/INTERLEAVING_EXCEED` errors, where it expected 82:
+  the ten writes start their data one after the other, in AW order.
+- `ovip_axi_signal_stability_test` checks that its two RRESP errors come on
+  the two cycles where RRESP changes, and has a new block: a read whose
+  RRESP changes on a stalled beat that is not the last (one error per
+  monitor), then a last beat that waits and changes nothing (no error).
+  `ovip_axi_xz_test` expects the RRESP X/Z error on both beats of its read.
+- `ovip_axi_xz_test` runs on AXI3, where it ran on AXI4, and forces an X on
+  WID too. `ovip_axi_signal_stability_test` sets AXI3, which was its
+  default, and expects the WID change of its W block.
+- `ovip_axi_xz_test` sets `check_undefined_data_lanes` for its write part,
+  whose X is on a WDATA byte with an X strobe. Its new last part puts an X
+  on an unstrobed WDATA byte and on an unused RDATA lane: no error by
+  default, one error each with the bit set.
+- `ovip_axi_signal_stability_test` expects the `AXI_MON/BRESP` and
+  `AXI_MON/RDATA` error of its B block and of its second R block, which
+  raise BVALID and RVALID with no write and no read.
+- `ovip_axi_slave_out_of_range_test` gives its memory a second range,
+  [0x1001, 0x1102), and writes and reads its first byte, its last byte and
+  its last two bytes. The bytes next to it are refused.
+- `ovip_axi_bad_dba_test` and `ovip_axi_data_before_address_test` expect
+  the real transfer count in the `AXI_MON/AWLEN_MISMATCH` text (11 and 10,
+  where they expected 10 and 9).
+- `ovip_mem_test`: on EDA Playground (the bundle's `eda_tb.sv` defines
+  `OVIP_EDA_PLAYGROUND`) the write_bytestream benchmark runs rounds for 15 s
+  of wall time instead of the 1000 rounds that ran past the site's runtime
+  cap, and prints a `ROUNDS:` line with the calls per second. Locally it
+  still runs 1000 rounds.
+- `ovip_axi_bytestream_test` and `ovip_axi_bytestream_lite_test`: a round
+  that runs the sequence as the child of another sequence, started with
+  `call_pre_post = 0`, and a round with streams of no bytes.
+- `ovip_axi_mid_test_reset_inflight_test` and
+  `ovip_axi_mid_test_reset_async_valid_test` set
+  `protocol_type = OVIP_PROTOCOL_AXI4` on both agents. Their bursts of 65
+  and 64 beats are AXI4 traffic, and they ran on the default AXI3.
+- `ovip_axi_bytestream_test` sets the ", AXI4-Lite" part of its first
+  message with `if`, not with a conditional of two string literals: on VCS
+  the full AXI4 run printed 11 spaces there.
+
 ## [0.5.0] -- 2026-10-26
 
 ### Added -- VIP

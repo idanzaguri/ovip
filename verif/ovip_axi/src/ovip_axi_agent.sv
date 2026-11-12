@@ -13,7 +13,7 @@ class ovip_axi_agent extends uvm_agent;
 	ovip_axi_trans_logger   trans_logger; // created only when cfg.enable_trans_log
 
 
-	`uvm_component_param_utils(ovip_axi_agent)
+	`uvm_component_utils(ovip_axi_agent)
 
 	function new(string name = "ovip_axi_agent", uvm_component parent);
 		super.new(name, parent);

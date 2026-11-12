@@ -31,7 +31,9 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 	ovip_axi_user_t RUSER_MASK;
 
 
-	// `analysis_port_cont` - Broadcast the transaction when it starts.
+	// `analysis_port_cont` - Broadcast the transaction when it starts: its type
+	// and its first phase are in the item (the address, or the first W beat
+	// of a write whose data comes before its address).
 	uvm_analysis_port #(ovip_axi_trans) analysis_port_cont;
 	// `analysis_port` - Broadcast the transaction when it finishes.
 	uvm_analysis_port #(ovip_axi_trans) analysis_port;
@@ -59,6 +61,13 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 	protected ovip_axi_id_t wr_address_phase_order[$];
 	protected ovip_axi_id_t wr_resp_phase_order[$];
 
+	// AXI3: the first W beat of each write follows the AW order (spec A5.3.3).
+	// These two hold what the check has not paired yet: the AW handshakes
+	// whose write has no W beat so far, in AW order, and the first W beats
+	// whose write has no AW so far, in W order.
+	protected ovip_axi_id_t axi3_aw_wo_first_wbeat[$];
+	protected ovip_axi_id_t axi3_first_wbeat_wo_aw[$];
+
 	// Queue for managing read transactions ordering.
 	protected ovip_axi_id_t rd_address_phase_order[$];
 
@@ -66,6 +75,12 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 	// If both address and data phases are valid simultaneously,
 	// wait for the address phase monitor thread to finish to avoid race conditions.
 	semaphore addr_data_wr_phases_sync_sm;
+
+	// The item that new_transaction() made and analysis_port_cont has not got
+	// yet: send_new_transaction() writes it there after its first phase is
+	// sampled. A subclass that makes its items in its own new_transaction()
+	// sets this to the new item, instead of writing it to the port there.
+	protected ovip_axi_trans new_tr_for_analysis_port_cont;
 
 	// Response request port - used for active slave ports.
 	uvm_blocking_get_imp#(ovip_axi_trans, ovip_axi_monitor#(IF_T)) response_req_port;
@@ -97,6 +112,7 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 	extern virtual function ovip_axi_trans new_transaction();
 	extern virtual function ovip_axi_trans new_wr_transaction();
 	extern virtual function ovip_axi_trans new_rd_transaction();
+	extern virtual function void send_new_transaction(ovip_axi_trans tr);
 	extern virtual function void close_and_send_transaction(ovip_axi_trans tr);
 
 
@@ -108,6 +124,7 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 
 
 	extern virtual task check_that_all_valid_signals_are_low_while_reset();
+	extern virtual function void check_that_all_valid_signals_are_low_at_reset_exit();
 	extern virtual task hand_shake_signals_xz_monitor();
 	`ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
 		extern virtual function void check_xz_write_address();
@@ -121,6 +138,10 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 		extern virtual task b_channel_signal_stability_check();
 		extern virtual task ar_channel_signal_stability_check();
 		extern virtual task r_channel_signal_stability_check();
+
+		// The byte lanes of WDATA and RDATA that these checks cover
+		extern virtual function ovip_axi_data_t wdata_lanes_to_check(ovip_axi_strb_t strb);
+		extern virtual function ovip_axi_data_t rdata_lanes_to_check();
 	`else
 		virtual function void check_xz_write_address() ; endfunction
 		virtual function void check_xz_write_data()    ; endfunction
@@ -143,11 +164,13 @@ class ovip_axi_monitor #(type IF_T = virtual ovip_axi_agent_if) extends uvm_moni
 	extern virtual function void check_wr_data_phase_post_address(ovip_axi_trans tr);
 	extern virtual function void close_wr_transaction(ovip_axi_trans tr);
 	extern virtual function void axi3_write_out_of_order_checker(ovip_axi_id_t id);
+	extern virtual function void axi3_write_addr_order_checker(ovip_axi_id_t id, bit data_started);
 	extern virtual task axi3_write_interleaved_monitor();
 
 	// Functions for checking channel activity.￼
 	extern virtual task check_outstanding();
 	extern virtual function void check_address_phase(ovip_axi_trans tr);
+	extern virtual function void check_axcache(ovip_axi_trans tr);
 	extern virtual function void check_data_phase(ovip_axi_trans tr);
 	extern virtual function void check_write_response(ovip_axi_trans tr);
 
@@ -182,6 +205,7 @@ endfunction : build_phase
 
 
 task ovip_axi_monitor::run_phase(uvm_phase phase);
+	bit reset_seen = 0; // 1 once ARESETn was sampled low
 
 	// Setting signal masks based on the configuration object.
 	ADDR_MASK = (ovip_axi_addr_t'(1)<<cfg.addr_width)-1;
@@ -205,9 +229,21 @@ task ovip_axi_monitor::run_phase(uvm_phase phase);
 	forever
 	begin
 		`uvm_info(MESSAGE_TAG, "Waiting for reset de-assertion", UVM_DEBUG)
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn);
+		// the first clock edge with ARESETn high
+		forever
+		begin
+			@(vif.monitor_cb);
+			if(vif.monitor_cb.aresetn === 1'b0) reset_seen = 1;
+			if(vif.monitor_cb.aresetn) break;
+		end
 		`uvm_info(MESSAGE_TAG, "Reset has been de-asserted", UVM_DEBUG)
 
+		// The exit from a reset. A simulation may start with ARESETn high and
+		// the wires not driven yet, which is no exit from a reset.
+		if(reset_seen) check_that_all_valid_signals_are_low_at_reset_exit();
+
+		// The channel threads start on this clock edge and take a handshake
+		// that is on it.
 		`OVIP_BEGIN_FIRST_OF
 			rst_monitor();
 			fork
@@ -229,6 +265,7 @@ task ovip_axi_monitor::run_phase(uvm_phase phase);
 				extra_forks();
 			join
 		`OVIP_END_FIRST_OF
+		reset_seen = 1; // rst_monitor returned: ARESETn was sampled low
 	end
 endtask : run_phase
 
@@ -244,11 +281,14 @@ task ovip_axi_monitor::rst_monitor();
 	wr_address_phase_order.delete();
 	wr_resp_phase_order.delete();
 	rd_address_phase_order.delete();
+	axi3_aw_wo_first_wbeat.delete();
+	axi3_first_wbeat_wo_aw.delete();
 
 	num_outstanding_wr = 0;
 	num_outstanding_rd = 0;
 	addr_data_wr_phases_sync_sm = new(0);
 	pending_rsp_req.delete();
+	new_tr_for_analysis_port_cont = null;
 endtask : rst_monitor
 
 
@@ -256,13 +296,30 @@ function ovip_axi_trans ovip_axi_monitor::new_transaction();
 	new_transaction = ovip_axi_trans::type_id::create($sformatf("axi_tr_%0d",++transaction_counter));
 	new_transaction.bus_width = cfg.bus_width;
 	//void'(begin_tr(tr));
-	analysis_port_cont.write(new_transaction);
+	// analysis_port_cont gets the item from send_new_transaction(), when its
+	// type and its first phase are in it
+	new_tr_for_analysis_port_cont = new_transaction;
 endfunction : new_transaction
+
+
+// Writes `tr` to analysis_port_cont when it is the item that new_transaction()
+// just made, and does nothing for any other item. The channel threads call it
+// after they sampled a phase, so the first phase of a new item is in it. A
+// subclass whose new_transaction() writes the item to analysis_port_cont
+// itself, and does not call the base function, keeps doing so: the write
+// here is then skipped.
+function void ovip_axi_monitor::send_new_transaction(ovip_axi_trans tr);
+	if(tr == null || tr != new_tr_for_analysis_port_cont) return;
+	new_tr_for_analysis_port_cont = null;
+	analysis_port_cont.write(tr);
+endfunction : send_new_transaction
 
 
 function ovip_axi_trans ovip_axi_monitor::new_wr_transaction();
 	new_wr_transaction = new_transaction();
 	new_wr_transaction.tr_type = OVIP_AXI_WRITE_TRANS;
+	// the watchdog of the transaction: cfg.tr_timeout_us of 0 turns it off
+	if(cfg.tr_timeout_us > 0)
 	fork
 		begin
 			ovip_axi_trans tr = new_wr_transaction;
@@ -283,6 +340,8 @@ endfunction : new_wr_transaction
 function ovip_axi_trans ovip_axi_monitor::new_rd_transaction();
 	new_rd_transaction = new_transaction();
 	new_rd_transaction.tr_type = OVIP_AXI_READ_TRANS;
+	// the watchdog of the transaction: cfg.tr_timeout_us of 0 turns it off
+	if(cfg.tr_timeout_us > 0)
 	fork
 		begin
 			ovip_axi_trans tr = new_rd_transaction;
@@ -337,6 +396,23 @@ task ovip_axi_monitor::check_that_all_valid_signals_are_low_while_reset();
 endtask : check_that_all_valid_signals_are_low_while_reset
 
 
+// A VALID that is high on the first rising clock edge where ARESETn is high
+// after a reset. It may rise only after that edge (spec A3.1.2, Figure A3-1).
+// Called on that edge. Only a 1 is an error here, not an X or a Z.
+function void ovip_axi_monitor::check_that_all_valid_signals_are_low_at_reset_exit();
+	if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE) begin
+		if(vif.monitor_cb.awvalid === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal AWVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.wvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal WVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.bvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal BVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+	end
+
+	if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE) begin
+		if(vif.monitor_cb.arvalid === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal ARVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.rvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal RVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+	end
+endfunction : check_that_all_valid_signals_are_low_at_reset_exit
+
+
 task ovip_axi_monitor::hand_shake_signals_xz_monitor();
 	forever
 	begin
@@ -381,7 +457,7 @@ task ovip_axi_monitor::check_outstanding();
 
 	if(num_outstanding_rd+num_outstanding_wr > cfg.num_outstanding_transactions && cfg.num_outstanding_transactions)
 		`uvm_error({MESSAGE_TAG ,"AXI_MON/OUTSTANDING_EXCEED"}, $sformatf("Total number of outstanding transactions (%0d) exceeded the configured limit (%0d)",
-			num_outstanding_rd+num_outstanding_wr, cfg.num_outstanding_rd_transactions))
+			num_outstanding_rd+num_outstanding_wr, cfg.num_outstanding_transactions))
 
 endtask : check_outstanding
 
@@ -416,6 +492,13 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 		if(aligned_addr + burst_len*burst_size > `OVIP_AXI_MAX_ADDR_WIDTH'h1000)
 		begin
 			`uvm_error(error_tag, "4K boundary crossing")
+			tr.monitor_error = 1;
+		end
+		// AXI3: an INCR burst has 16 transfers at most too (spec A3.4.1). FIXED
+		// and WRAP have that limit on every protocol, checked below.
+		if(cfg.protocol_type == OVIP_PROTOCOL_AXI3 && burst_len > 16)
+		begin
+			`uvm_error(error_tag, $sformatf("The length of an AXI3 burst must not exceed 16 (actual value: %0d).", burst_len))
 			tr.monitor_error = 1;
 		end
 	end
@@ -455,13 +538,33 @@ endfunction : check_address_phase
 
 
 
+// AXI4: an AxCACHE value that Table A4-5 of the spec does not list is
+// reserved. The check runs when the agent has the signal (cfg.awcache_en for
+// a write, cfg.arcache_en for a read). The request itself stays usable, so
+// tr.monitor_error is not set.
+function void ovip_axi_monitor::check_axcache(ovip_axi_trans tr);
+	bit is_write = (tr.tr_type == OVIP_AXI_WRITE_TRANS);
+
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4) return;
+	if(is_write ? !cfg.awcache_en : !cfg.arcache_en) return;
+
+	if(!(tr.axcache inside {4'b0000, 4'b0001, 4'b0010, 4'b0011, 4'b0110, 4'b0111, 4'b1010, 4'b1011, 4'b1110, 4'b1111}))
+	begin
+		if(is_write)
+			`uvm_error({MESSAGE_TAG, "AXI_MON/WR"}, $sformatf("AWCACHE=0b%04b is a reserved value on AXI4 (spec Table A4-5).", tr.axcache))
+		else
+			`uvm_error({MESSAGE_TAG, "AXI_MON/RD"}, $sformatf("ARCACHE=0b%04b is a reserved value on AXI4 (spec Table A4-5).", tr.axcache))
+	end
+endfunction : check_axcache
+
+
 function void ovip_axi_monitor::check_data_phase(ovip_axi_trans tr);
 	if(!tr.valid_address_phase) return;
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
 	begin
 		if(tr.resp == OVIP_AXI_RESP_EXOKAY)
-			`uvm_error("AXI_MON", "EXOKAY response is not supported on AXI4-Lite")
+			`uvm_error({MESSAGE_TAG, "AXI_MON"}, "EXOKAY response is not supported on AXI4-Lite")
 		return;
 	end
 
@@ -471,7 +574,7 @@ function void ovip_axi_monitor::check_data_phase(ovip_axi_trans tr);
 		string error_tag = (tr.tr_type == OVIP_AXI_WRITE_TRANS)? "AXI_MON/WR" : "AXI_MON/RD";
 		error_tag = {MESSAGE_TAG, error_tag};
 
-		if(tr.got_last_beat && num_beats < burst_len)
+		if(tr.got_last_beat && num_beats != burst_len)
 		begin
 			`uvm_error(error_tag, $sformatf("xLAST was asserted on transfer #%0d, but the address phase AxLEN indicates it should be on transfer #%0d.", num_beats, burst_len))
 			tr.monitor_error = 1;
@@ -479,7 +582,7 @@ function void ovip_axi_monitor::check_data_phase(ovip_axi_trans tr);
 
 		if(!tr.got_last_beat && num_beats >= burst_len)
 		begin
-			`uvm_error(error_tag, $sformatf("Missing xLAST: The expected xLAST assertion on transfer #%0d (as per AWLEN=%0d) was not observed.", num_beats, burst_len))
+			`uvm_error(error_tag, $sformatf("Missing xLAST: The expected xLAST assertion on transfer #%0d (as per AxLEN=%0d) was not observed.", num_beats, tr.len))
 			tr.monitor_error = 1;
 		end
 	end
@@ -489,7 +592,7 @@ endfunction : check_data_phase
 function void ovip_axi_monitor::check_write_response(ovip_axi_trans tr);
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE && tr.resp == OVIP_AXI_RESP_EXOKAY)
-		`uvm_error("AXI_MON", "EXOKAY response is not supported on AXI4-Lite")
+		`uvm_error({MESSAGE_TAG, "AXI_MON"}, "EXOKAY response is not supported on AXI4-Lite")
 
 endfunction : check_write_response
 
@@ -532,7 +635,7 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 	tr.data_beats[tr.burst_index] = wdata;
 	tr.strb_beats[tr.burst_index] = wstrb;
 
-	if(tr.burst_index == 0) tr.data_phase_begin_time = $time; // first W beat
+	if(tr.burst_index == 0) tr.data_phase_begin_time = $realtime; // first W beat
 
 	// Check strobes and handle automatic byte lane alignment.
 	// This is relevant for all beats in the case of narrow transfers,
@@ -543,7 +646,7 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 		string err_msg[$];
 		if(!tr.check_strb(tr.burst_index, tr.burst_index, err_msg))
 		begin
-			`uvm_error("AXI_MON/INVALID_WSTRB", err_msg[0])
+			`uvm_error({MESSAGE_TAG, "AXI_MON/INVALID_WSTRB"}, err_msg[0])
 			tr.monitor_error = 1;
 		end
 
@@ -557,7 +660,7 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 
 	tr.wuser = vif.monitor_cb.wuser&WUSER_MASK;
 	tr.got_last_beat = (vif.monitor_cb.wlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE);
-	if(tr.got_last_beat) tr.data_phase_time = $time; // last W beat
+	if(tr.got_last_beat) tr.data_phase_time = $realtime; // last W beat
 endfunction : sample_write_data
 
 
@@ -565,7 +668,7 @@ function void ovip_axi_monitor::sample_write_response(ovip_axi_trans tr);
 	tr.id    = vif.monitor_cb.bid&WR_ID_MASK;
 	tr.resp  = ovip_axi_resp_t'(vif.monitor_cb.bresp);
 	tr.buser = vif.monitor_cb.buser&BUSER_MASK;
-	tr.resp_phase_time = $time; // B response
+	tr.resp_phase_time = $realtime; // B response
 	tr.transaction_finished = 1;
 	tr.completed_ev.trigger();
 endfunction : sample_write_response
@@ -606,7 +709,7 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
 
-	if(tr.burst_index == 0) tr.data_phase_begin_time = $time; // first R beat
+	if(tr.burst_index == 0) tr.data_phase_begin_time = $realtime; // first R beat
 
 	tr.id = vif.monitor_cb.rid&RD_ID_MASK;
 
@@ -619,8 +722,8 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 
 	if(tr.got_last_beat)
 	begin
-		tr.data_phase_time = $time; // last R beat
-		tr.resp_phase_time = $time; // read response rides the last beat
+		tr.data_phase_time = $realtime; // last R beat
+		tr.resp_phase_time = $realtime; // read response rides the last beat
 	end
 
 	// optional signals
@@ -658,7 +761,7 @@ function void ovip_axi_monitor::check_wr_data_phase_post_address(ovip_axi_trans 
 	if(last_beat > tr.len) // more transfer then expected
 	begin
 		`uvm_error({MESSAGE_TAG, "AXI_MON/AWLEN_MISMATCH"}, $sformatf("Transaction length mismatch. Data phase indicated a total of %0d transfers, but the address phase specified an AWLEN of %0d!",
-			last_beat, tr.len))
+			tr.burst_index, tr.len))
 		tr.monitor_error = 1;
 		last_beat = tr.len;
 	end
@@ -716,12 +819,15 @@ task ovip_axi_monitor::axi3_write_interleaved_monitor();
 	bit wr_interleaved_ids[ovip_axi_id_t]; // Interleaved writes are valid in AXI3 only
 	ovip_axi_id_t id;
 	bit addr_phase_exists;
+	bit on_start_edge = 1; // see waddr_phase_monitor
 
 	if(cfg.protocol_type != OVIP_PROTOCOL_AXI3) return;
 
 	forever
 	begin
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.wvalid && vif.monitor_cb.wready);
+		if(!(on_start_edge && (vif.monitor_cb.wvalid & vif.monitor_cb.wready) === 1'b1))
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.wvalid && vif.monitor_cb.wready);
+		on_start_edge = 0;
 		id = vif.monitor_cb.wid&WR_ID_MASK;
 
 		// Interleaved depth check
@@ -736,21 +842,51 @@ task ovip_axi_monitor::axi3_write_interleaved_monitor();
 endtask : axi3_write_interleaved_monitor
 
 
+// AXI3 write data order (spec A5.3.3): a slave gets the first W beat of each
+// write in the order of the AW handshakes. The beats after the first may
+// interleave, which axi3_write_interleaved_monitor counts. Called on the
+// first W beat of a write, with its WID. The AW of that write may still be
+// to come (data before address): then every AW that waits for its first W
+// beat is ahead of it.
 function void ovip_axi_monitor::axi3_write_out_of_order_checker(ovip_axi_id_t id);
-	int idx[$] = wr_address_phase_order.find_first_index() with (item == id);
-	if(idx.size() == 0) `uvm_fatal("SIM_ASSERT", $sformatf("missing matching entry in `wr_address_phase_order` array! ID=%0d", id))
-	if(idx[0] >= cfg.wr_out_of_order_depth)
-		`uvm_error({MESSAGE_TAG, "AXI_MON/WDATA_OOO"}, $sformatf("Out of order depth (%0d) exceeded the allowed value (%0d)", idx[0]+1, cfg.wr_out_of_order_depth))
+	int idx[$] = axi3_aw_wo_first_wbeat.find_first_index() with (item == id);
+	int ahead = (idx.size() != 0) ? idx[0] : axi3_aw_wo_first_wbeat.size();
+	if(ahead != 0)
+		`uvm_error({MESSAGE_TAG, "AXI_MON/WDATA_OOO"}, $sformatf("The first W beat of the write with ID 0x%0x came before the first W beat of %0d write(s) whose AW came earlier. On AXI3 the first W beats follow the AW order (spec A5.3.3).", id, ahead))
+	if(idx.size() != 0) axi3_aw_wo_first_wbeat.delete(idx[0]);
+	else                axi3_first_wbeat_wo_aw.push_back(id);
 endfunction : axi3_write_out_of_order_checker
+
+
+// The AW side of the same check. Called at each AW handshake, with its AWID.
+// `data_started` is 1 when W beats of this write came before its AW: then
+// every first W beat that waits for its AW and is older than this one is
+// ahead of it. With no W beat yet, every first W beat that waits for its AW
+// is ahead of it.
+function void ovip_axi_monitor::axi3_write_addr_order_checker(ovip_axi_id_t id, bit data_started);
+	int idx[$] = axi3_first_wbeat_wo_aw.find_first_index() with (item == id);
+	int ahead;
+	if(data_started && idx.size() == 0) `uvm_fatal("SIM_ASSERT", $sformatf("missing matching entry in `axi3_first_wbeat_wo_aw` array! ID=%0d", id))
+	ahead = data_started ? idx[0] : axi3_first_wbeat_wo_aw.size();
+	if(ahead != 0)
+		`uvm_error({MESSAGE_TAG, "AXI_MON/WDATA_OOO"}, $sformatf("The AW of the write with ID 0x%0x came before the AW of %0d write(s) whose first W beat came earlier. On AXI3 the first W beats follow the AW order (spec A5.3.3).", id, ahead))
+	if(data_started) axi3_first_wbeat_wo_aw.delete(idx[0]);
+	else             axi3_aw_wo_first_wbeat.push_back(id);
+endfunction : axi3_write_addr_order_checker
 
 
 task ovip_axi_monitor::waddr_phase_monitor();
 	ovip_axi_trans tr;
 	ovip_axi_id_t id;
+	// The thread starts on the first clock edge with ARESETn high. A handshake
+	// on that edge is taken like one on any later edge.
+	bit on_start_edge = 1;
 
 	forever
 	begin
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn & vif.monitor_cb.awvalid & vif.monitor_cb.awready);
+		if(!(on_start_edge && (vif.monitor_cb.awvalid & vif.monitor_cb.awready) === 1'b1))
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn & vif.monitor_cb.awvalid & vif.monitor_cb.awready);
+		on_start_edge = 0;
 
 		id = vif.monitor_cb.awid&WR_ID_MASK;
 		wr_address_phase_order.push_back(id);
@@ -758,6 +894,9 @@ task ovip_axi_monitor::waddr_phase_monitor();
 		// First, check if there is an open transaction missing the address phase
 		// (i.e., the first data beat was sampled before the address phase).
 		tr = locate_related_DBA_transaction(id);
+
+		if(cfg.protocol_type == OVIP_PROTOCOL_AXI3)
+			axi3_write_addr_order_checker(id, tr != null);
 
 		if(tr == null)
 		begin
@@ -777,25 +916,30 @@ task ovip_axi_monitor::waddr_phase_monitor();
 		check_xz_write_address();
 		sample_write_address(tr);
 		check_address_phase(tr);
-		tr.addr_phase_time = $time;
+		check_axcache(tr);
+		tr.addr_phase_time = $realtime;
 		tr.valid_address_phase = 1;
 		tr.is_narrow_transfer = (2**tr.size != int'(cfg.bus_width));
 		//if(cfg.auto_byte_lanes_alignment)
 		// Calling calculate_transfer_starting_byte_lane even when auto_byte_lanes_alignment=0 since tr.check_strb needs it.
 		tr.calculate_transfer_starting_byte_lane();
+		send_new_transaction(tr);
 
 		// For data before address (DBA) scenarios, after receiving the address phase,
 		// we can then check all previously sampled data beats.
 		if(tr.burst_index != 0)
+		begin
 			check_wr_data_phase_post_address(tr);
+			// The beats so far against AWLEN: an early WLAST, or AWLEN+1 beats
+			// with no WLAST. More beats than AWLEN+1 were reported just above.
+			if(tr.burst_index <= tr.len + 1)
+				check_data_phase(tr);
+		end
 
 		outstanding_wr_trans[id].push_back(tr);
 
 		if(tr.got_last_beat)
-		begin
-			check_data_phase(tr);
 			close_wr_transaction(tr);
-		end
 
 		if(vif.monitor_cb.wvalid && vif.monitor_cb.wready) addr_data_wr_phases_sync_sm.put(1);
 	end
@@ -803,6 +947,8 @@ endtask : waddr_phase_monitor
 
 
 task ovip_axi_monitor::wdata_phase_monitor();
+	bit on_start_edge = 1; // see waddr_phase_monitor
+
 	fork axi3_write_interleaved_monitor(); join_none
 
 	forever
@@ -811,7 +957,9 @@ task ovip_axi_monitor::wdata_phase_monitor();
 		ovip_axi_id_t id;
 		bit addr_phase_exists;
 
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.wvalid && vif.monitor_cb.wready);
+		if(!(on_start_edge && (vif.monitor_cb.wvalid & vif.monitor_cb.wready) === 1'b1))
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.wvalid && vif.monitor_cb.wready);
+		on_start_edge = 0;
 		if(vif.monitor_cb.awvalid && vif.monitor_cb.awready) addr_data_wr_phases_sync_sm.get(1);
 
 		// Stage I: Retrieve the transaction ID and check if the address phase has already been processed for it.
@@ -819,8 +967,6 @@ task ovip_axi_monitor::wdata_phase_monitor();
 		begin
 			id = vif.monitor_cb.wid&WR_ID_MASK;
 			addr_phase_exists = (outstanding_wr_trans.exists(id) && outstanding_wr_trans[id].size());
-			if(addr_phase_exists)
-				axi3_write_out_of_order_checker(id);
 		end
 		else // In non-AXI3 ports, the ID is implicitly defined by the order of the address phases.
 		begin
@@ -870,11 +1016,16 @@ task ovip_axi_monitor::wdata_phase_monitor();
 		end
 
 
+		// AXI3: the first W beat of a write, against the AW order
+		if(cfg.protocol_type == OVIP_PROTOCOL_AXI3 && tr.burst_index == 0)
+			axi3_write_out_of_order_checker(id);
+
 		tr.data_phase_started = 1;
 		check_xz_write_data();
 		sample_write_data(tr);
 		tr.burst_index++;
 		check_data_phase(tr);
+		send_new_transaction(tr);
 
 		if(tr.got_last_beat && tr.valid_address_phase)
 		begin
@@ -885,20 +1036,56 @@ endtask : wdata_phase_monitor
 
 
 task ovip_axi_monitor::bresp_phase_monitor();
+	// 1 when the B transfer on the bus was tested against its write. A transfer
+	// starts on the first cycle with BVALID high and ends with its handshake.
+	bit transfer_checked = 0;
+	bit on_start_edge = 1; // see waddr_phase_monitor
+
 	forever
 	begin
 		ovip_axi_id_t id;
 		ovip_axi_trans tr;
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn & vif.monitor_cb.bvalid & vif.monitor_cb.bready);
-		--num_outstanding_wr;
-		id = vif.monitor_cb.bid & WR_ID_MASK;
+		bit write_is_done;
 
-
-		if(!wr_trans_waiting_for_response.exists(id) || wr_trans_waiting_for_response[id].size() == 0)
+		if(!on_start_edge) @(vif.monitor_cb);
+		on_start_edge = 0;
+		if((vif.monitor_cb.aresetn & vif.monitor_cb.bvalid) !== 1'b1)
 		begin
-			`uvm_error({MESSAGE_TAG, "AXI_MON/BRESP"}, $sformatf("Unexpected BRESP: write response for ID 0x%0x with no matching outstanding write request.", id))
+			transfer_checked = 0;
 			continue;
 		end
+		id = vif.monitor_cb.bid & WR_ID_MASK;
+
+		// The response is for the oldest write of this ID that waits for one.
+		// BVALID may be high only after the AW handshake and the last W
+		// handshake of that write (spec A3.3.1), so both are on an earlier
+		// clock edge: a write that completed on this edge does not count.
+		write_is_done = wr_trans_waiting_for_response.exists(id) && wr_trans_waiting_for_response[id].size() != 0
+			&& wr_trans_waiting_for_response[id][0].addr_phase_time < $realtime
+			&& wr_trans_waiting_for_response[id][0].data_phase_time < $realtime;
+
+		if(!transfer_checked)
+		begin
+			// The AW handshake is expected on AXI3 too, where the spec does not
+			// require it (spec A3.3.2): the message says so there.
+			string axi3_note = "";
+			if(cfg.protocol_type == OVIP_PROTOCOL_AXI3)
+				axi3_note = " The monitor expects the AW handshake before BVALID on AXI3 too, which is stricter than AXI3 requires.";
+			transfer_checked = 1;
+			if(!write_is_done)
+				`uvm_error({MESSAGE_TAG, "AXI_MON/BRESP"}, $sformatf("BVALID is high for ID 0x%0x, and no write with this ID had its AW and its last W beat accepted on an earlier clock edge (spec A3.3.1).%s", id, axi3_note))
+		end
+
+		if(vif.monitor_cb.bready !== 1'b1) continue;
+		transfer_checked = 0;
+
+		// A response that no write was ready for is dropped. It was reported
+		// when its BVALID rose.
+		if(!write_is_done) continue;
+
+		// The response ends a write that was counted: one less is outstanding.
+		// A response with no write ended nothing.
+		--num_outstanding_wr;
 
 		// Check for out-of-order depth.
 		begin
@@ -928,10 +1115,13 @@ endtask : bresp_phase_monitor
 
 task ovip_axi_monitor::raddr_phase_monitor();
 	ovip_axi_trans tr;
+	bit on_start_edge = 1; // see waddr_phase_monitor
 
 	forever
 	begin
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn & vif.monitor_cb.arvalid & vif.monitor_cb.arready);
+		if(!(on_start_edge && (vif.monitor_cb.arvalid & vif.monitor_cb.arready) === 1'b1))
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn & vif.monitor_cb.arvalid & vif.monitor_cb.arready);
+		on_start_edge = 0;
 		++num_outstanding_rd;
 		check_outstanding();
 
@@ -940,15 +1130,18 @@ task ovip_axi_monitor::raddr_phase_monitor();
 		check_xz_read_address();
 		sample_read_address(tr);
 		check_address_phase(tr);
+		check_axcache(tr);
 
 		rd_address_phase_order.push_back(tr.id);
 
-		tr.addr_phase_time = $time;
+		tr.addr_phase_time = $realtime;
 		tr.valid_address_phase = 1;
 
 		tr.is_narrow_transfer = (2**tr.size != int'(cfg.bus_width));
-		if(cfg.auto_byte_lanes_alignment)
-			tr.calculate_transfer_starting_byte_lane();
+		// Also without auto_byte_lanes_alignment: the X/Z check and the
+		// stability check of RDATA need the lanes of every beat.
+		tr.calculate_transfer_starting_byte_lane();
+		send_new_transaction(tr);
 
 
 		outstanding_rd_trans[tr.id].push_back(tr);
@@ -964,20 +1157,45 @@ endtask : raddr_phase_monitor
 
 task ovip_axi_monitor::rdata_phase_monitor();
 	bit rd_interleaved_ids[ovip_axi_id_t];
+	// 1 when the R beat on the bus was tested against its read. A beat starts
+	// on the first cycle with RVALID high and ends with its handshake.
+	bit transfer_checked = 0;
+	bit on_start_edge = 1; // see waddr_phase_monitor
 
 	forever
 	begin
 		ovip_axi_trans tr;
 		ovip_axi_id_t id;
+		bit read_is_open;
 
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn & vif.monitor_cb.rvalid & vif.monitor_cb.rready);
-		id = vif.monitor_cb.rid & RD_ID_MASK;
-
-		if(!outstanding_rd_trans.exists(id) || outstanding_rd_trans[id].size() == 0)
+		if(!on_start_edge) @(vif.monitor_cb);
+		on_start_edge = 0;
+		if((vif.monitor_cb.aresetn & vif.monitor_cb.rvalid) !== 1'b1)
 		begin
-			`uvm_error({MESSAGE_TAG, "AXI_MON/RDATA"}, "Data phase encountered without a corresponding address phase. Ignoring this beat.")
+			transfer_checked = 0;
 			continue;
 		end
+		id = vif.monitor_cb.rid & RD_ID_MASK;
+
+		// The beat is for the oldest read of this ID. RVALID may be high only
+		// after the AR handshake of that read (spec A3.3.1), so the handshake
+		// is on an earlier clock edge: an AR taken on this edge does not count.
+		read_is_open = outstanding_rd_trans.exists(id) && outstanding_rd_trans[id].size() != 0
+			&& outstanding_rd_trans[id][0].addr_phase_time < $realtime;
+
+		if(!transfer_checked)
+		begin
+			transfer_checked = 1;
+			if(!read_is_open)
+				`uvm_error({MESSAGE_TAG, "AXI_MON/RDATA"}, $sformatf("RVALID is high for ID 0x%0x, and no read with this ID had its AR accepted on an earlier clock edge (spec A3.3.1).", id))
+		end
+
+		if(vif.monitor_cb.rready !== 1'b1) continue;
+		transfer_checked = 0;
+
+		// A beat that no read was open for is dropped. It was reported when
+		// its RVALID rose.
+		if(!read_is_open) continue;
 
 		//
 		// Interleave and out-of-order checks
@@ -1047,16 +1265,16 @@ function void ovip_axi_monitor::report_phase(uvm_phase phase);
 	super.report_phase(phase);
 
 	foreach(outstanding_rd_trans[id,ii])
-		`uvm_error("AXI_MON/INCOMPLETE_RD_TRANS",$sformatf("Transactions did not complete before the test was terminated: %s", outstanding_rd_trans[id][ii].convert2string()) )
+		`uvm_error({MESSAGE_TAG, "AXI_MON/INCOMPLETE_RD_TRANS"}, $sformatf("Transactions did not complete before the test was terminated: %s", outstanding_rd_trans[id][ii].convert2string()) )
 
 	foreach(outstanding_wr_trans[id,ii])
-		`uvm_error("AXI_MON/INCOMPLETE_WR_TRANS",$sformatf("Transactions did not complete before the test was terminated: %s", outstanding_wr_trans[id][ii].convert2string()) )
+		`uvm_error({MESSAGE_TAG, "AXI_MON/INCOMPLETE_WR_TRANS"}, $sformatf("Transactions did not complete before the test was terminated: %s", outstanding_wr_trans[id][ii].convert2string()) )
 
 	foreach(outstanding_wr_trans_wo_addr_phase[id,ii])
-		`uvm_error("AXI_MON/INCOMPLETE_WR_TRANS",$sformatf("Transactions did not complete(missing address phase) before the test was terminated: %s", outstanding_wr_trans_wo_addr_phase[id][ii].convert2string()))
+		`uvm_error({MESSAGE_TAG, "AXI_MON/INCOMPLETE_WR_TRANS"}, $sformatf("Transactions did not complete(missing address phase) before the test was terminated: %s", outstanding_wr_trans_wo_addr_phase[id][ii].convert2string()))
 
 	foreach(wr_trans_waiting_for_response[id,ii])
-		`uvm_error("AXI_MON/INCOMPLETE_WR_TRANS",$sformatf("Transactions did not complete(missing response) before the test was terminated: %s", wr_trans_waiting_for_response[id][ii].convert2string()) )
+		`uvm_error({MESSAGE_TAG, "AXI_MON/INCOMPLETE_WR_TRANS"}, $sformatf("Transactions did not complete(missing response) before the test was terminated: %s", wr_trans_waiting_for_response[id][ii].convert2string()) )
 endfunction : report_phase
 
 `endif

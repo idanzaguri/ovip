@@ -13,6 +13,14 @@
 //   3. Hold PREADY LOW for num_wait_states ACCESS cycles, then drive PREADY
 //      HIGH together with PRDATA (reads) and PSLVERR.
 //   4. After the completion cycle, return to idle levels and item_done().
+//
+// The driver takes one item per request the monitor forwards, on the same
+// clock edge, also when the requester breaks the operating states of spec
+// section 4.1 (the monitor reports that as APB_MON/FSM). It reads PSEL and
+// PENABLE on every cycle of the response with the monitor's own tests. A
+// cycle that is not ACCESS before the completion ends the response there,
+// and when that cycle is a SETUP cycle the driver takes the item of the new
+// request on it.
 class ovip_apb_slave_driver extends uvm_driver#(ovip_apb_trans);
 
 	virtual ovip_apb_agent_if vif;
@@ -20,6 +28,11 @@ class ovip_apb_slave_driver extends uvm_driver#(ovip_apb_trans);
 	string MESSAGE_TAG;
 
 	protected bit item_in_progress;
+
+	// Set by drive_response when the requester left the transfer before its
+	// completion on a cycle that is itself a SETUP cycle: the next request
+	// starts on that edge, with no new wait for a SETUP cycle.
+	protected bit at_setup;
 
 	protected ovip_apb_data_t DATA_MASK;
 
@@ -36,6 +49,7 @@ class ovip_apb_slave_driver extends uvm_driver#(ovip_apb_trans);
 	extern virtual function void drive_reset_values();
 	extern virtual task          response_driver();
 	extern virtual task          drive_response(ovip_apb_trans tr);
+	extern protected virtual function bit left_access();
 
 endclass : ovip_apb_slave_driver
 
@@ -90,11 +104,15 @@ endfunction : drive_reset_values
 
 
 task ovip_apb_slave_driver::response_driver();
+	at_setup = 0;
 	forever
 	begin
-		// SETUP cycle sampled. The monitor pushed the request to the slave
-		// sequence at this same edge; the sequence answers in zero time.
-		@(vif.slave_cb iff (vif.slave_cb.psel == 1'b1 && vif.slave_cb.penable == 1'b0));
+		// SETUP cycle sampled, by the monitor's own test of it. The monitor
+		// pushed the request to the slave sequence at this same edge; the
+		// sequence answers in zero time.
+		if(!at_setup)
+			@(vif.slave_cb iff (vif.slave_cb.presetn === 1'b1 && vif.slave_cb.psel === 1'b1 && vif.slave_cb.penable !== 1'b1));
+		at_setup = 0;
 
 		seq_item_port.get_next_item(req);
 		item_in_progress = 1;
@@ -120,12 +138,16 @@ task ovip_apb_slave_driver::response_driver();
 endtask : response_driver
 
 
+// Entered on the edge that sampled the SETUP cycle of `tr`. Every cycle from
+// there to the completion must be an ACCESS cycle. One that is not ends the
+// response on its edge (see left_access).
 task ovip_apb_slave_driver::drive_response(ovip_apb_trans tr);
 	// Wait states: PREADY LOW for the requested number of ACCESS cycles.
 	repeat(tr.num_wait_states)
 	begin
 		vif.slave_cb.pready <= 1'b0;
 		@(vif.slave_cb);
+		if(left_access()) return;
 	end
 
 	// Completion cycle: PREADY HIGH with the response payload.
@@ -136,11 +158,25 @@ task ovip_apb_slave_driver::drive_response(ovip_apb_trans tr);
 		vif.slave_cb.pslverr <= tr.slverr;
 	@(vif.slave_cb);
 
-	tr.transaction_finished = 1;
+	if(!left_access())
+		tr.transaction_finished = 1;
 	if(cfg.drive_reset_values_when_idle)
 		drive_reset_values();
 	else
 		vif.slave_cb.pready <= 1'b0;
 endtask : drive_response
+
+
+// 1 when the cycle just sampled is not an ACCESS cycle of the transfer in
+// progress: PSEL or PENABLE is not HIGH, or PRESETn is LOW. `at_setup` is
+// then set when the cycle is a SETUP cycle. The tests are the monitor's, so
+// the driver and the monitor leave a transfer, and start the next one, on
+// the same edge.
+function bit ovip_apb_slave_driver::left_access();
+	if(vif.slave_cb.presetn !== 1'b1) return 1;
+	if(vif.slave_cb.psel === 1'b1 && vif.slave_cb.penable === 1'b1) return 0;
+	at_setup = (vif.slave_cb.psel === 1'b1 && vif.slave_cb.penable !== 1'b1);
+	return 1;
+endfunction : left_access
 
 `endif

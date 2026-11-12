@@ -20,33 +20,44 @@ class ovip_axi_simple_rd_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 		super.new(name);
 	endfunction
 
+	// A random address for a burst of len+1 beats of 2**size bytes, inside
+	// addr_width: an INCR burst stays inside its 4KB page, a WRAP burst
+	// starts aligned to its beat size.
+	protected function ovip_axi_addr_t random_addr(int len, ovip_axi_size_t size);
+		ovip_axi_addr_t  a     = $urandom & ((ovip_axi_addr_t'(1)<<p_sequencer.cfg.addr_width)-1);
+		longint unsigned beat  = longint'(1) << size;
+		longint unsigned total = (len + 1) * beat;
+		if(burst == OVIP_AXI_BURST_WRAP)
+			a -= a % beat;
+		else if(burst == OVIP_AXI_BURST_INCR)
+		begin
+			longint unsigned page_off = (a & 'hFFF) & ~(beat - 1);   // where the first beat's container starts in the page
+			if(total > 'h1000)
+			begin
+				`uvm_warning("BAD_USE", $sformatf("an INCR burst of %0d beats of %0dB does not fit in a 4KB page", len + 1, beat))
+				a -= page_off;
+			end
+			else if(page_off + total > 'h1000)
+				a -= page_off + total - 'h1000;
+		end
+		return a;
+	endfunction : random_addr
+
 	virtual task body();
 		tr_pool = new[num_trans];
 		set_response_queue_depth(num_trans);
 	
-		while(addr.size() < num_trans)
-		begin
-			addr.push_back($urandom);
-			addr[$] &= ((ovip_axi_addr_t'(1)<<p_sequencer.cfg.addr_width)-1);
-		end
 		while(size.size() < num_trans)
 		begin
 			size.push_back(ovip_axi_size_t'($clog2(p_sequencer.cfg.bus_width)));
 		end
 		while(len.size() < num_trans)
 		begin
-			/*
-			int idx = len.size()-1;
-			int burst_size = 1<<size[idx];
-			int unsigned aligned_addr = addr[idx]-addr[idx]%burst_size;
-			int max_burst_len_4k = (4096 - aligned_addr%4096)/burst_size;	
-			int min_burst_len_4k = min_burst_len;	
-			if(max_burst_len < max_burst_len_4k) max_burst_len_4k = max_burst_len;
-			if(min_burst_len > max_burst_len_4k) min_burst_len_4k = max_burst_len_4k;
-			len.push_back($urandom_range(max_burst_len_4k, min_burst_len_4k));
-			`uvm_error("dd",$sformatf("0x%0x %0dB [%0d:%0d] [%0d:%0d]",aligned_addr%4096,burst_size,min_burst_len_4k,max_burst_len_4k,min_burst_len,max_burst_len))
-			*/
 			len.push_back($urandom_range(max_burst_len, min_burst_len));
+		end
+		while(addr.size() < num_trans)
+		begin
+			addr.push_back(random_addr(len[addr.size()], size[addr.size()]));
 		end
 
 
@@ -63,7 +74,7 @@ class ovip_axi_simple_rd_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 				tr.addr  = addr[ii];
 				tr.size  = size[ii];
 				tr.len   = len[ii];
-				tr.id    = ii;
+				tr.id    = ii & ((ovip_axi_id_t'(1)<<p_sequencer.cfg.rd_id_width)-1);
 				tr.delay_until_next_addr = $urandom_range(max_delay_between_req, min_delay_between_req);
 				finish_item(tr);
 			end

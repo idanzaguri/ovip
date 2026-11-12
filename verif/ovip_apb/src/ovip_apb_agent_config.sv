@@ -37,6 +37,13 @@ class ovip_apb_agent_config extends uvm_object;
 	// LOW then shows it. Off by default.
 	bit randomize_idle_payload = 0;
 
+	// The lanes of PWDATA that the monitor checks for X/Z and for stability
+	// during a write. 0 (the default): the lanes whose PSTRB bit is HIGH,
+	// which are the only ones that must be valid (spec Appendix A.1), and
+	// every lane on an agent with pstrb_en = 0. 1: every lane inside the
+	// data width, whatever PSTRB says.
+	bit check_undefined_data_lanes = 0;
+
 	// Completer-side default wait-state range, used by the base slave
 	// sequence when the test doesn't override its knobs.
 	int unsigned default_min_wait_states = 0;
@@ -56,6 +63,32 @@ class ovip_apb_agent_config extends uvm_object;
 	function new(string name = "ovip_apb_agent_config");
 		super.new(name);
 	endfunction : new
+
+
+	// copy() and clone() carry every field. A new field goes in here too.
+	virtual function void do_copy(uvm_object rhs);
+		ovip_apb_agent_config c;
+		if(!$cast(c, rhs)) `uvm_fatal("CAST_FAILED", "ovip_apb_agent_config::do_copy: rhs is not an ovip_apb_agent_config")
+		super.do_copy(rhs);
+		is_active                    = c.is_active;
+		agent_type                   = c.agent_type;
+		protocol_type                = c.protocol_type;
+		agent_tag                    = c.agent_tag;
+		addr_width                   = c.addr_width;
+		data_width                   = c.data_width;
+		pstrb_en                     = c.pstrb_en;
+		pprot_en                     = c.pprot_en;
+		pslverr_en                   = c.pslverr_en;
+		drive_reset_values_when_idle = c.drive_reset_values_when_idle;
+		randomize_idle_payload       = c.randomize_idle_payload;
+		check_undefined_data_lanes   = c.check_undefined_data_lanes;
+		default_min_wait_states      = c.default_min_wait_states;
+		default_max_wait_states      = c.default_max_wait_states;
+		enable_trans_log             = c.enable_trans_log;
+		trans_log_file               = c.trans_log_file;
+		trans_log_combined_file      = c.trans_log_combined_file;
+		trans_log_format             = c.trans_log_format;
+	endfunction : do_copy
 
 
 	// Validates the configuration against the spec rules and the MAX caps.

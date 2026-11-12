@@ -10,9 +10,13 @@ Smallest runnable example for the ACE VIP (full ACE profile).
 - Instantiates a master ACE agent and a slave/interconnect ACE agent on one
   `ovip_ace_agent_if` (no DUT -- pure VIP loopback).
 - The master issues 4 `WriteUnique` then 4 `ReadOnce` transactions, carrying
-  AxDOMAIN (Inner Shareable) and AxSNOOP, backed by `ovip_mem` loopback.
-- The interconnect side injects one `ReadShared` snoop; the master is expected
-  to answer on CR with the default "cache miss" response.
+  AxDOMAIN (Inner Shareable) and AxSNOOP, backed by `ovip_mem` loopback. The
+  sequence waits for the write responses before it reads, and reports a
+  `uvm_error` if a read does not return the data that was written.
+- The interconnect side injects one `ReadShared` snoop; the master answers on
+  CR with the default "cache miss" response. An `ovip_ace_scoreboard` on the
+  master monitor's `snoop_analysis_port` counts the snoops, and the test
+  reports a `uvm_error` if the count is not 1.
 
 ## Run
 
@@ -23,12 +27,17 @@ make clean
 
 ## What is (and is not) confirmed
 
-- **Confirmed:** the read/write path runs to `UVM_ERROR : 0`, and both monitors
-  reconstruct the transactions with the correct ACE decode (`ReadOnce`,
-  `WriteUnique`, `DOMAIN=INNER_SHAREABLE`).
-- **NOT confirmed:** the injected snoop does **not** currently produce an
-  observed snoop transaction (no `ACE_MON/SNOOP` line appears). The AC/CR/CD
-  path is unverified -- debugging it is the top task in
+- **Confirmed:** the read/write path runs to `UVM_ERROR : 0`, each read
+  returns the written data, and both monitors reconstruct the transactions
+  with the correct ACE decode (`ReadOnce`, `WriteUnique`,
+  `DOMAIN=INNER_SHAREABLE`).
+- **Confirmed:** the injected snoop completes with the default response
+  (CRRESP = 0, no data), and both monitors report it with an `ACE_MON/SNOOP`
+  line.
+- **Confirmed:** every read gets its RACK and every write its WACK: the
+  monitors report an acknowledge that is still owed at the end of the test.
+- **NOT confirmed:** a snoop response with data on CD, and everything else
+  that the example does not drive. See
   [`verif/ovip_ace/CONTRIBUTING.md`](../../../verif/ovip_ace/CONTRIBUTING.md).
 
 ## Note on the dummy AXI interface

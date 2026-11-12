@@ -58,6 +58,14 @@ The following are open and welcome as contributions:
 - **UVM callbacks** on the monitor and drivers for users who need
   injection hooks.
 
+## Known gaps
+
+- **A reset in the time step of a `start_item`.** When a reset kills the
+  master driver while it waits in `get_next_item`, in the same time step in
+  which a sequence calls `start_item`, the next `get_next_item` can end in
+  the UVM error "Get_next_item called twice". It was found by reading
+  `src/ovip_apb_master_driver.sv`; no test hits it.
+
 ## Reporting issues
 
 Open an issue describing the smallest reproducible scenario. For protocol

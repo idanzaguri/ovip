@@ -42,22 +42,37 @@ The VIP is SystemVerilog targeting **UVM 1.2**:
 
 The following are open and welcome as contributions:
 
-- **AXI5 parity (`*CHK` signals) enforcement.** The property and the wires
-  are in place; the monitor's odd-parity computation and the master driver's
-  parity-bit generation are not. A complete contribution would (1) compute
-  per-byte odd parity in the master driver for TDATA, TSTRB, TKEEP, TLAST,
-  TID, TDEST, TUSER, TWAKEUP; (2) verify on the receiver-side monitor; (3)
-  add a regression test exercising both happy-path parity and a flipped-bit
-  failure case (the latter absorbed via expected_errors).
-- **Continuous-packets profile runtime enforcement.** The config flag is
-  honored at `check_config` time; add the monitor checks that flag null
-  bytes within a packet and disallow interleaving when the property is set.
+- **AXI5 parity (`Check_Type = Odd_Parity_Byte_All`, spec chapter 5).**
+  Nothing of it exists yet. The interface has none of the ten check signals
+  of spec Table 5-1 (TVALIDCHK, TREADYCHK, TDATACHK, TSTRBCHK, TKEEPCHK,
+  TLASTCHK, TIDCHK, TDESTCHK, TUSERCHK, TWAKEUPCHK), nothing generates or
+  checks parity, and `cfg.parity_en` is read only by `check_config`. A
+  complete contribution would (1) add the ten check signals to the
+  interface and its clocking blocks; (2) drive odd parity on them in the
+  master driver (TVALIDCHK, TDATACHK, TSTRBCHK, TKEEPCHK, TLASTCHK, TIDCHK,
+  TDESTCHK, TUSERCHK, TWAKEUPCHK) and in the slave driver (TREADYCHK);
+  (3) check every check signal in the monitor when `parity_en` is set; (4)
+  add a regression test with correct parity and with a flipped bit (the
+  latter absorbed via expected_errors).
+- **Interleaved packets from the transmitter.** The master driver sends
+  each `ovip_axi_stream_trans` as one whole packet, so the transfers of
+  packets with a different TID or TDEST never interleave on the wire. The
+  monitor already keeps one open packet per TID and TDEST pair (spec
+  section 2.7), so only the driver side is missing.
 - **Functional coverage groups** on TID/TDEST distribution, TLAST cadence,
   null/position byte frequency, TREADY back-pressure profiles, etc.
 - **UVM transaction recording** (`accept_tr` / `begin_tr` / `end_tr`) so
   packets show up as labeled streams in waveform databases.
 - **UVM callbacks** on the monitor and drivers for users who need
   injection hooks.
+
+## Known gaps
+
+- **A reset in the time step of a `start_item`.** When a reset kills the
+  master driver while it waits in `get_next_item`, in the same time step in
+  which a sequence calls `start_item`, the next `get_next_item` can end in
+  the UVM error "Get_next_item called twice". It was found by reading
+  `src/ovip_axi_stream_master_driver.sv`; no test hits it.
 
 ## Reporting issues
 

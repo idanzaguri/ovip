@@ -20,35 +20,34 @@
 //   - populate_data_from_mem(req) / write_transaction_to_mem(req) -- where
 //     read data comes from / write data goes. Override both to model a
 //     register slave instead of a memory.
-//   - body() -- full override if none of the above fits.
+//   - body() -- full override if none of the above fits. Call
+//     apply_default_wait_states() first, as the base body() does.
 //
 // Preconditions:
 //   - The `mem` handle is OPTIONAL. If left null, a subclass MUST override
 //     populate_data_from_mem and write_transaction_to_mem (otherwise the
 //     base fatals with a clear message at the first request).
-//   - cfg.data_width must not exceed the memory word size (one transfer
-//     always fits inside one memory word; the APB data bus caps at 4 bytes
-//     and ovip_mem's default word is 4 bytes, so the default just works).
 class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 
-	// Wait-state range consumed per transfer by get_num_wait_states().
-	// Initialized from cfg's defaults at pre_body; override the knobs (or the
-	// hook) before start() for directed control.
-	rand int unsigned min_ws;
-	rand int unsigned max_ws;
-	protected bit ws_knobs_set = 0;
+	// Wait-state range consumed per transfer by get_num_wait_states(). For
+	// directed control set the knobs before start(): assign them, randomize
+	// the sequence, or call set_wait_states() (or override the hook). A knob
+	// left at WS_FROM_CFG, its initial value, takes cfg's default
+	// (default_min_wait_states, default_max_wait_states) when body() starts.
+	localparam int unsigned WS_FROM_CFG = 32'hFFFF_FFFF;
+	rand int unsigned min_ws = WS_FROM_CFG;
+	rand int unsigned max_ws = WS_FROM_CFG;
 
 	// Handle to the backing memory for read fill / write capture. OPTIONAL --
 	// see the class comment.
 	ovip_mem mem;
 
-	protected int memory_word_size;
-
 	// A transfer outside the memory's valid ranges (ovip_mem::add_valid_range)
 	// is answered PSLVERR and never touches the memory: a read returns 0, a
 	// write is not committed. Reported as SLAVE_SEQ/OUT_OF_RANGE unless this
 	// is cleared, for a test that aims outside on purpose. With no valid
-	// range set the check is off and every address is in range.
+	// range set the check is off and every address is in range. An agent
+	// with no PSLVERR (cfg.pslverr_en = 0) does the same and shows OKAY.
 	bit report_out_of_range = 1;
 
 	`uvm_declare_p_sequencer(ovip_apb_slave_sequencer)
@@ -68,24 +67,21 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 	virtual function void set_wait_states(int unsigned min_val, int unsigned max_val);
 		min_ws = min_val;
 		max_ws = max_val;
-		ws_knobs_set = 1;
 	endfunction : set_wait_states
 
 
+	// Gives cfg's default to a knob that nobody set. body() calls it first,
+	// so it also runs in a sequence started with call_pre_post = 0, as the
+	// uvm_do macros start one. pre_body() and get_num_wait_states() call it
+	// too, for a subclass with a body() of its own.
+	virtual function void apply_default_wait_states();
+		if(min_ws == WS_FROM_CFG) min_ws = p_sequencer.cfg.default_min_wait_states;
+		if(max_ws == WS_FROM_CFG) max_ws = p_sequencer.cfg.default_max_wait_states;
+	endfunction : apply_default_wait_states
+
+
 	virtual task pre_body();
-		if(!ws_knobs_set)
-		begin
-			min_ws = p_sequencer.cfg.default_min_wait_states;
-			max_ws = p_sequencer.cfg.default_max_wait_states;
-		end
-		if(mem != null)
-		begin
-			memory_word_size = mem.get_word_size();
-			if(p_sequencer.cfg.data_width > memory_word_size)
-				`uvm_fatal("OVIP_APB/SLAVE_SEQ",
-					$sformatf("cfg.data_width (%0dB) exceeds the memory word size (%0dB) -- one APB transfer must fit inside one memory word.",
-						p_sequencer.cfg.data_width, memory_word_size))
-		end
+		apply_default_wait_states();
 	endtask : pre_body
 
 
@@ -98,26 +94,23 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 
 
 	virtual function int unsigned get_num_wait_states(ovip_apb_trans req);
+		apply_default_wait_states();
 		return $urandom_range(max_ws, min_ws);
 	endfunction : get_num_wait_states
 
 
-	// Address decomposition shared by the read/write helpers: the transfer's
-	// bus-aligned address is split into the containing memory word and the
-	// byte lane offset of the transfer inside that word. Unaligned PADDR is
-	// UNPREDICTABLE per spec section 2.1.1 -- the base aligns down and warns.
-	protected virtual function void decompose_addr(ovip_apb_trans req,
-	                                               output longint unsigned word_addr,
-	                                               output int unsigned lane);
+	// The transfer's address, aligned down to the data bus width, for the
+	// read/write helpers. Unaligned PADDR is UNPREDICTABLE per spec section
+	// 2.1.1: the base aligns down and warns.
+	protected virtual function ovip_apb_addr_t bus_aligned_addr(ovip_apb_trans req);
 		int unsigned dw = p_sequencer.cfg.data_width;
 		ovip_apb_addr_t bus_addr = (req.addr / dw) * dw;
 		if(bus_addr != req.addr)
 			`uvm_warning("OVIP_APB/SLAVE_SEQ",
 				$sformatf("Unaligned PADDR 0x%0h for a %0d-byte data bus -- result is UNPREDICTABLE per spec section 2.1.1; aligning down to 0x%0h.",
 					req.addr, dw, bus_addr))
-		word_addr = (longint'(bus_addr) / memory_word_size) * memory_word_size;
-		lane      = bus_addr % memory_word_size;
-	endfunction : decompose_addr
+		return bus_addr;
+	endfunction : bus_aligned_addr
 
 
 	// The transfer's data bytes, at its bus-aligned address, against the
@@ -130,26 +123,32 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 	endfunction : request_in_range
 
 
+	// The cfg.data_width bytes of the transfer, at its bus-aligned address:
+	// the bytes that request_in_range checks. The byte enables are req.strb.
 	virtual function void write_transaction_to_mem(ovip_apb_trans req);
-		longint unsigned word_addr;
-		int unsigned lane;
+		ovip_bytestream data;
+		ovip_bitstream  byte_enable;
 		if(mem == null)
 			`uvm_fatal("OVIP_APB/SLAVE_SEQ",
 				"write_transaction_to_mem called with `mem == null`. Either assign `mem` before start(), or override write_transaction_to_mem in your subclass.")
-		decompose_addr(req, word_addr, lane);
-		mem.write(word_addr, req.wdata << (lane * 8), req.strb << lane);
+		for(int ii = 0; ii < p_sequencer.cfg.data_width; ii++)
+		begin
+			data.push_back(req.wdata[ii*8 +: 8]);
+			byte_enable.push_back(req.strb[ii]);
+		end
+		mem.write_bytestream(bus_aligned_addr(req), data, byte_enable);
 	endfunction : write_transaction_to_mem
 
 
+	// The same bytes, read into req.rdata.
 	virtual function void populate_data_from_mem(ovip_apb_trans req);
-		longint unsigned word_addr;
-		int unsigned lane;
+		ovip_bytestream data;
 		if(mem == null)
 			`uvm_fatal("OVIP_APB/SLAVE_SEQ",
 				"populate_data_from_mem called with `mem == null`. Either assign `mem` before start(), or override populate_data_from_mem in your subclass.")
-		decompose_addr(req, word_addr, lane);
-		req.rdata = (mem.read(word_addr) >> (lane * 8))
-		            & ((ovip_apb_data_t'(1) << p_sequencer.cfg.data_width*8) - 1);
+		data = mem.read_bytestream(bus_aligned_addr(req), p_sequencer.cfg.data_width);
+		req.rdata = '0;
+		foreach(data[ii]) req.rdata[ii*8 +: 8] = data[ii];
 	endfunction : populate_data_from_mem
 
 
@@ -161,6 +160,7 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 	//   3. finish_item must be reached in ZERO simulation time -- the slave
 	//      driver is blocked on get_next_item at the SETUP edge.
 	virtual task body();
+		apply_default_wait_states();
 		forever
 		begin
 			p_sequencer.response_req_port.get(req);
@@ -172,9 +172,13 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 			// outside the memory's valid ranges: PSLVERR, the memory untouched
 			if(!req.slverr && !request_in_range(req))
 			begin
+				string dir    = "read";
+				string answer = "answering OKAY (this agent has no PSLVERR)";
+				if(req.write)                  dir    = "write";
+				if(p_sequencer.cfg.pslverr_en) answer = "answering PSLVERR";
 				if(report_out_of_range)
-					`uvm_error("SLAVE_SEQ/OUT_OF_RANGE", $sformatf("%s: %s at 0x%0h touches an address outside the memory's %0d valid range(s): answering PSLVERR, memory untouched",
-						p_sequencer.get_full_name(), req.write ? "write" : "read", req.addr, mem.num_valid_ranges()))
+					`uvm_error("SLAVE_SEQ/OUT_OF_RANGE", $sformatf("%s: %s at 0x%0h touches an address outside the memory's %0d valid range(s): %s, memory untouched",
+						p_sequencer.get_full_name(), dir, req.addr, mem.num_valid_ranges(), answer))
 				req.slverr = 1'b1;
 			end
 
