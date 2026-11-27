@@ -34,6 +34,11 @@ The VIP is SystemVerilog targeting **UVM 1.2**:
 - **Indentation:** tabs.
 - **Include guards:** wrap every `.sv` include file in
   `` `ifndef <FILE>__SV `` / `` `define `` / `` `endif ``.
+- **Message IDs:** every check (a rule that is reported as `uvm_error` or
+  `uvm_warning`) has a message ID of its own. Do not give a new check the ID
+  of another check: a user selects a check by its ID
+  (`cfg.set_check_severity()`). Add the new ID to the "Check Reports" tables
+  of the README.
 - **Comments:** explain *why* something non-obvious is done, not *what* the
   code does. Each file opens with a short header describing its purpose and
   where to look next.
@@ -59,6 +64,13 @@ The following are open and welcome as contributions:
   packets with a different TID or TDEST never interleave on the wire. The
   monitor already keeps one open packet per TID and TDEST pair (spec
   section 2.7), so only the driver side is missing.
+- **Open-packet cap, timeout, end-of-test check, and idle payload control.**
+  `drive_reset_values_when_idle`, `num_outstanding_transactions` and
+  `tr_timeout_us` exist on `ovip_axi_stream_agent_config` (shipped in 0.3.0)
+  but have no effect in this version, and `ovip_axi_stream_monitor` does not
+  yet report open packets left at end of test.
+- **Transaction logger** (`ovip_axi_stream_trans_logger`), matching `ovip_axi`
+  and `ovip_apb`.
 - **Functional coverage groups** on TID/TDEST distribution, TLAST cadence,
   null/position byte frequency, TREADY back-pressure profiles, etc.
 - **UVM transaction recording** (`accept_tr` / `begin_tr` / `end_tr`) so

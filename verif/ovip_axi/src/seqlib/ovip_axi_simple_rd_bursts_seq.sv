@@ -34,7 +34,7 @@ class ovip_axi_simple_rd_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 			longint unsigned page_off = (a & 'hFFF) & ~(beat - 1);   // where the first beat's container starts in the page
 			if(total > 'h1000)
 			begin
-				`uvm_warning("BAD_USE", $sformatf("an INCR burst of %0d beats of %0dB does not fit in a 4KB page", len + 1, beat))
+				`uvm_warning("AXI_SIMPLE_SEQ/PAGE_4K", $sformatf("an INCR burst of %0d beats of %0dB does not fit in a 4KB page", len + 1, beat))
 				a -= page_off;
 			end
 			else if(page_off + total > 'h1000)
@@ -66,7 +66,7 @@ class ovip_axi_simple_rd_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 			int ii = idx;
 			begin
 				ovip_axi_trans tr;
-				tr_pool[ii] = ovip_axi_trans::type_id::create($sformatf("tr_pool[%0d]",ii));
+				tr_pool[ii] = ovip_axi_trans::type_id::create($sformatf("tr_pool[%0d]",ii), null, get_full_name());
 				tr = tr_pool[ii];
 				start_item(tr);
 				tr.tr_type = OVIP_AXI_READ_TRANS;

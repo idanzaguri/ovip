@@ -275,7 +275,7 @@ class ovip_axi_bytestream_sequence extends ovip_axi_base_master_sequence;
 
 		foreach(axi_addr[ii])
 		begin
-			ovip_axi_trans tr = ovip_axi_trans::type_id::create($sformatf("trans[%0d]",trans.size()));
+			ovip_axi_trans tr = ovip_axi_trans::type_id::create($sformatf("trans[%0d]",trans.size()), null, get_full_name());
 			trans.push_back(tr);
 
 			start_item(tr);

@@ -16,9 +16,8 @@
 //     slave_agent.mon.analysis_port.connect(scoreboard.act_ap);
 //     master_agent.mon.snoop_analysis_port.connect(scoreboard.snoop_ap);
 
-`uvm_analysis_imp_decl(_snoop)
-
 class ovip_ace_scoreboard extends ovip_axi_scoreboard;
+	`uvm_analysis_imp_decl(_snoop)
 
 	`uvm_component_utils(ovip_ace_scoreboard)
 

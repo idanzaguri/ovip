@@ -43,7 +43,7 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 			longint unsigned page_off = (a & 'hFFF) & ~(beat - 1);   // where the first beat's container starts in the page
 			if(total > 'h1000)
 			begin
-				`uvm_warning("BAD_USE", $sformatf("an INCR burst of %0d beats of %0dB does not fit in a 4KB page", len + 1, beat))
+				`uvm_warning("AXI_SIMPLE_SEQ/PAGE_4K", $sformatf("an INCR burst of %0d beats of %0dB does not fit in a 4KB page", len + 1, beat))
 				a -= page_off;
 			end
 			else if(page_off + total > 'h1000)
@@ -58,7 +58,7 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 		set_response_queue_depth(num_trans);
 
 		if(!p_sequencer.cfg.auto_byte_lanes_alignment)
-			`uvm_fatal("BAD_USE", "ovip_axi_simple_wr_bursts_seq need auto_byte_lanes_alignment=1 in order to drive good strb")
+			`uvm_fatal("AXI_SIMPLE_SEQ/BAD_USE", "ovip_axi_simple_wr_bursts_seq need auto_byte_lanes_alignment=1 in order to drive good strb")
 
 		while(len.size() < num_trans)
 		begin
@@ -83,7 +83,7 @@ class ovip_axi_simple_wr_bursts_seq extends uvm_sequence#(ovip_axi_trans);
 			int ii = idx;
 			begin
 				ovip_axi_trans tr;
-				tr_pool[ii] = ovip_axi_trans::type_id::create($sformatf("tr_pool[%0d]",ii));
+				tr_pool[ii] = ovip_axi_trans::type_id::create($sformatf("tr_pool[%0d]",ii), null, get_full_name());
 				tr = tr_pool[ii];
 
 				start_item(tr);

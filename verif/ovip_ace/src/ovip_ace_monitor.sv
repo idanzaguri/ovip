@@ -43,6 +43,13 @@ class ovip_ace_monitor extends ovip_axi_monitor #(virtual ovip_ace_agent_if);
 	// with RACK / WACK yet (see rack_wack_sequencing_monitor).
 	protected int unsigned owed_rack;
 	protected int unsigned owed_wack;
+	protected int unsigned rack_completed_this_edge;
+	protected int unsigned wack_completed_this_edge;
+	protected realtime     last_rack_complete_time = -1.0;
+	protected realtime     last_wack_complete_time = -1.0;
+
+	// Snoop currently in flight between its AC handshake and its completion.
+	protected ovip_ace_trans open_snoop;
 
 	`uvm_component_utils(ovip_ace_monitor)
 
@@ -58,6 +65,7 @@ class ovip_ace_monitor extends ovip_axi_monitor #(virtual ovip_ace_agent_if);
 	// Produce ovip_ace_trans instead of ovip_axi_trans for every reconstructed
 	// transaction, so the ACE fields ride along and subscribers can $cast.
 	extern virtual function ovip_axi_trans new_transaction();
+	extern virtual function void close_and_send_transaction(ovip_axi_trans tr);
 
 	// Channel sampling overrides -- add the ACE additions after the AXI capture.
 	extern virtual function void sample_read_address(ovip_axi_trans tr);
@@ -70,6 +78,12 @@ class ovip_ace_monitor extends ovip_axi_monitor #(virtual ovip_ace_agent_if);
 	extern virtual task rack_wack_sequencing_monitor();
 	extern virtual task ace_handshake_signals_xz_monitor();
 	`ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
+		extern virtual function void check_xz_write_address();
+		extern virtual function void check_xz_read_address();
+		extern virtual function void check_xz_read_data();
+		extern virtual task ar_ace_signal_stability_check();
+		extern virtual task aw_ace_signal_stability_check();
+		extern virtual task r_ace_signal_stability_check();
 		extern virtual task ac_channel_signal_stability_check();
 		extern virtual task cr_channel_signal_stability_check();
 		extern virtual task cd_channel_signal_stability_check();
@@ -108,29 +122,64 @@ endtask : run_phase
 
 task ovip_ace_monitor::rst_monitor();
 	super.rst_monitor();
-	// A reset drops the transactions whose acknowledge was owed.
-	owed_rack = 0;
-	owed_wack = 0;
+	// A reset drops open snoops and transactions whose acknowledge was owed.
+	owed_rack                = 0;
+	owed_wack                = 0;
+	rack_completed_this_edge = 0;
+	wack_completed_this_edge = 0;
+	last_rack_complete_time  = -1.0;
+	last_wack_complete_time  = -1.0;
+	open_snoop               = null;
 endtask : rst_monitor
 
 
 function void ovip_ace_monitor::report_phase(uvm_phase phase);
 	super.report_phase(phase);
+	if(open_snoop != null)
+		`uvm_error({MESSAGE_TAG, "ACE_MON/INCOMPLETE_SNOOP"}, $sformatf("Snoop transaction did not complete before the test ended - %s", open_snoop.convert2string()))
 	if(owed_rack != 0)
-		`uvm_error({MESSAGE_TAG, "ACE_MON/RACK"}, $sformatf("%0d completed read transaction(s) got no RACK before the test ended (D3.3)", owed_rack))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/RACK_MISSING"}, $sformatf("%0d completed read transaction(s) got no RACK before the test ended (D3.3)", owed_rack))
 	if(owed_wack != 0)
-		`uvm_error({MESSAGE_TAG, "ACE_MON/WACK"}, $sformatf("%0d completed write transaction(s) got no WACK before the test ended (D3.5)", owed_wack))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/WACK_MISSING"}, $sformatf("%0d completed write transaction(s) got no WACK before the test ended (D3.5)", owed_wack))
 endfunction : report_phase
 
 
 function ovip_axi_trans ovip_ace_monitor::new_transaction();
-	ovip_ace_trans tr = ovip_ace_trans::type_id::create($sformatf("ace_tr_%0d", ++transaction_counter));
+	ovip_ace_trans tr = ovip_ace_trans::type_id::create($sformatf("ace_tr_%0d", ++transaction_counter), this);
 	tr.bus_width = cfg.bus_width;
 	// analysis_port_cont gets the item from send_new_transaction(), when its
 	// first phase is sampled
 	new_tr_for_analysis_port_cont = tr;
 	return tr;
 endfunction : new_transaction
+
+
+function void ovip_ace_monitor::close_and_send_transaction(ovip_axi_trans tr);
+	if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE)
+	begin
+		if(tr.tr_type == OVIP_AXI_READ_TRANS)
+		begin
+			if(last_rack_complete_time != $realtime)
+			begin
+				last_rack_complete_time  = $realtime;
+				rack_completed_this_edge = 0;
+			end
+			rack_completed_this_edge++;
+			owed_rack++;
+		end
+		else
+		begin
+			if(last_wack_complete_time != $realtime)
+			begin
+				last_wack_complete_time  = $realtime;
+				wack_completed_this_edge = 0;
+			end
+			wack_completed_this_edge++;
+			owed_wack++;
+		end
+	end
+	super.close_and_send_transaction(tr);
+endfunction : close_and_send_transaction
 
 
 // ----------------------------------------------------------------------------------- //
@@ -192,6 +241,9 @@ task ovip_ace_monitor::extra_forks();
 		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) rack_wack_sequencing_monitor();
 		if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) snoop_channel_monitor();
 		`ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
+			if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE && cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE) ar_ace_signal_stability_check();
+			if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE  && cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE) aw_ace_signal_stability_check();
+			if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE && cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE && ace_cfg.profile == OVIP_ACE_PROFILE_ACE) r_ace_signal_stability_check();
 			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) ac_channel_signal_stability_check();
 			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) cr_channel_signal_stability_check();
 			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE) cd_channel_signal_stability_check();
@@ -201,20 +253,39 @@ endtask : extra_forks
 
 
 task ovip_ace_monitor::snoop_channel_monitor();
+	bit orphan_cd_reported = 0;
+	open_snoop = null;
 	forever
 	begin
 		ovip_ace_trans snoop_tr;
 		bit got_cr;
 		bit got_cdlast;
 
-		// AC handshake -- a new snoop request from the interconnect.
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.acvalid && vif.monitor_cb.acready);
+		// AC handshake -- a new snoop request from the interconnect. Any CD
+		// beat transferred while no snoop is open (for instance after a CR
+		// with DataTransfer = 0) has no snoop expecting data.
+		forever
+		begin
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn);
+			if(vif.monitor_cb.cdvalid && vif.monitor_cb.cdready)
+			begin
+				if(!orphan_cd_reported)
+				begin
+					`uvm_error({MESSAGE_TAG, "ACE_MON/CD_BEATS"}, "Snoop data transferred on CD with no open snoop expecting data (expected 0 CD beats)")
+					orphan_cd_reported = 1;
+				end
+				if(vif.monitor_cb.cdlast) orphan_cd_reported = 0;
+			end
+			if(vif.monitor_cb.acvalid && vif.monitor_cb.acready) break;
+		end
+		orphan_cd_reported = 0;
 
-		snoop_tr = ovip_ace_trans::type_id::create($sformatf("ace_snoop_%0d", ++transaction_counter));
+		snoop_tr = ovip_ace_trans::type_id::create($sformatf("ace_snoop_%0d", ++transaction_counter), this);
 		snoop_tr.direction    = OVIP_ACE_SNOOP;
 		snoop_tr.snoop_addr   = vif.monitor_cb.acaddr & ACADDR_MASK;
 		snoop_tr.acsnoop_code = vif.monitor_cb.acsnoop;
 		snoop_tr.acprot       = vif.monitor_cb.acprot;
+		open_snoop            = snoop_tr;
 
 		// The CR handshake and the CD beats of this snoop. The master may
 		// send CD before, with or after CR (D3.9), so every edge takes both.
@@ -247,6 +318,8 @@ task ovip_ace_monitor::snoop_channel_monitor();
 			end
 		end
 
+		orphan_cd_reported = (!snoop_tr.snoop_resp.data_transfer && snoop_tr.snoop_data_beats.size() > 0 && !got_cdlast);
+		open_snoop = null;
 		check_snoop(snoop_tr);
 		`uvm_info({MESSAGE_TAG, "ACE_MON/SNOOP"}, snoop_tr.convert2string(), UVM_LOW)
 		snoop_analysis_port.write(snoop_tr);
@@ -259,30 +332,36 @@ task ovip_ace_monitor::rack_wack_sequencing_monitor();
 	// (after the RLAST beat is accepted) and one WACK for each completed write
 	// (after BRESP is accepted). Each cycle with RACK or WACK HIGH is one
 	// acknowledge, so the signal may stay HIGH while acknowledges are owed.
-	// An acknowledge with none owed is an error. The earliest cycle for an
-	// acknowledge is the one after its handshake, so every edge takes the
-	// acknowledge first and counts a new handshake after it. What is still
-	// owed when the test ends is reported in report_phase.
-	owed_rack = 0;
-	owed_wack = 0;
+	// An acknowledge with none owed from an earlier cycle is an error:
+	// close_and_send_transaction() counts only real open transactions and
+	// records those completed on the current edge so thread order on the same
+	// edge cannot hide a same-cycle RACK or WACK.
+	owed_rack                = 0;
+	owed_wack                = 0;
+	rack_completed_this_edge = 0;
+	wack_completed_this_edge = 0;
+	last_rack_complete_time  = -1.0;
+	last_wack_complete_time  = -1.0;
 	forever begin
+		int unsigned owed_rack_before;
+		int unsigned owed_wack_before;
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn);
+		owed_rack_before = owed_rack - ((last_rack_complete_time == $realtime) ? rack_completed_this_edge : 0);
+		owed_wack_before = owed_wack - ((last_wack_complete_time == $realtime) ? wack_completed_this_edge : 0);
 		if(vif.monitor_cb.rack)
 		begin
-			if(owed_rack == 0)
+			if(owed_rack_before == 0)
 				`uvm_error({MESSAGE_TAG, "ACE_MON/RACK"}, "RACK asserted with no completed read transaction awaiting acknowledge (D6.2)")
 			else
 				owed_rack--;
 		end
 		if(vif.monitor_cb.wack)
 		begin
-			if(owed_wack == 0)
+			if(owed_wack_before == 0)
 				`uvm_error({MESSAGE_TAG, "ACE_MON/WACK"}, "WACK asserted with no completed write transaction awaiting acknowledge (D6.2)")
 			else
 				owed_wack--;
 		end
-		if(vif.monitor_cb.rvalid && vif.monitor_cb.rready && vif.monitor_cb.rlast) owed_rack++;
-		if(vif.monitor_cb.bvalid && vif.monitor_cb.bready) owed_wack++;
 	end
 endtask : rack_wack_sequencing_monitor
 
@@ -300,21 +379,194 @@ task ovip_ace_monitor::ace_handshake_signals_xz_monitor();
 		`OVIP_AXI_MON_XZ_CHECK(cdready, CDREADY)
 		`OVIP_AXI_MON_XZ_CHECK(rack,    RACK)
 		`OVIP_AXI_MON_XZ_CHECK(wack,    WACK)
+		`ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
+			if(vif.monitor_cb.acvalid === 1'b1 && vif.monitor_cb.acready === 1'b1)
+			begin
+				`OVIP_AXI_MON_XZ_CHECK(acaddr & ACADDR_MASK, ACADDR)
+				`OVIP_AXI_MON_XZ_CHECK(acsnoop             , ACSNOOP)
+				`OVIP_AXI_MON_XZ_CHECK(acprot              , ACPROT)
+			end
+			if(vif.monitor_cb.crvalid === 1'b1 && vif.monitor_cb.crready === 1'b1)
+			begin
+				`OVIP_AXI_MON_XZ_CHECK(crresp, CRRESP)
+			end
+			if(vif.monitor_cb.cdvalid === 1'b1 && vif.monitor_cb.cdready === 1'b1)
+			begin
+				`OVIP_AXI_MON_XZ_CHECK(cddata & CDDATA_MASK, CDDATA)
+				`OVIP_AXI_MON_XZ_CHECK(cdlast              , CDLAST)
+			end
+		`endif
 	end
 endtask : ace_handshake_signals_xz_monitor
 
 
 `ifndef OVIP_AXI_DISABLE_XZ_AND_SIGNALS_STABILITY_CHECKS
+function void ovip_ace_monitor::check_xz_write_address();
+	super.check_xz_write_address();
+	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
+	`OVIP_AXI_MON_XZ_CHECK(awdomain, AWDOMAIN)
+	`OVIP_AXI_MON_XZ_CHECK(awsnoop , AWSNOOP )
+	`OVIP_AXI_MON_XZ_CHECK(awbar   , AWBAR   )
+	if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE)
+	begin
+		`OVIP_AXI_MON_XZ_CHECK(awunique, AWUNIQUE)
+	end
+endfunction : check_xz_write_address
+
+
+function void ovip_ace_monitor::check_xz_read_address();
+	super.check_xz_read_address();
+	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE) return;
+	`OVIP_AXI_MON_XZ_CHECK(ardomain, ARDOMAIN)
+	`OVIP_AXI_MON_XZ_CHECK(arsnoop , ARSNOOP )
+	`OVIP_AXI_MON_XZ_CHECK(arbar   , ARBAR   )
+endfunction : check_xz_read_address
+
+
+function void ovip_ace_monitor::check_xz_read_data();
+	ovip_axi_data_t rdata_lanes = rdata_lanes_to_check();
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE)
+	begin
+		`OVIP_AXI_MON_XZ_CHECK(rid & RD_ID_MASK, RID)
+	end
+	`OVIP_AXI_MON_XZ_CHECK(rdata & rdata_lanes, RDATA)
+	`OVIP_AXI_MON_XZ_CHECK(ruser & RUSER_MASK , RUSER)
+	// ACE-Lite has no RRESP[3:2] bits (D11.1): check only RRESP[1:0] there.
+	if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE)
+	begin
+		`OVIP_AXI_MON_XZ_CHECK(rresp, RRESP)
+	end
+	else
+	begin
+		`OVIP_AXI_MON_XZ_CHECK(rresp[1:0], RRESP)
+	end
+	if(cfg.protocol_type != OVIP_PROTOCOL_AXI4_LITE)
+	begin
+		`OVIP_AXI_MON_XZ_CHECK(rlast, RLAST)
+	end
+endfunction : check_xz_read_data
+
+
+task ovip_ace_monitor::ar_ace_signal_stability_check();
+	// ACE additions on AR must stay stable while ARVALID waits for ARREADY.
+	// 4-state copies keep a steady X or Z from counting as a change, and each
+	// signal reports at most once per transfer.
+	forever
+	begin
+		logic [1:0] s_domain, s_bar;
+		logic [3:0] s_snoop;
+		bit rep_domain = 0, rep_snoop = 0, rep_bar = 0;
+
+		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.arvalid && !vif.monitor_cb.arready);
+		s_domain = vif.monitor_cb.ardomain;
+		s_snoop  = vif.monitor_cb.arsnoop;
+		s_bar    = vif.monitor_cb.arbar;
+
+		while(!(vif.monitor_cb.arvalid && vif.monitor_cb.arready))
+		begin
+			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn || !vif.monitor_cb.arvalid) break;
+			if(!rep_domain && vif.monitor_cb.ardomain !== s_domain)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal ARDOMAIN was changed before being sampled!")
+				rep_domain = 1;
+			end
+			if(!rep_snoop && vif.monitor_cb.arsnoop !== s_snoop)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal ARSNOOP was changed before being sampled!")
+				rep_snoop = 1;
+			end
+			if(!rep_bar && vif.monitor_cb.arbar !== s_bar)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal ARBAR was changed before being sampled!")
+				rep_bar = 1;
+			end
+		end
+	end
+endtask : ar_ace_signal_stability_check
+
+
+task ovip_ace_monitor::aw_ace_signal_stability_check();
+	// ACE additions on AW must stay stable while AWVALID waits for AWREADY.
+	// AWUNIQUE exists in the ACE profile only (D11.1).
+	forever
+	begin
+		logic [1:0] s_domain, s_bar;
+		logic [2:0] s_snoop;
+		logic       s_unique;
+		bit rep_domain = 0, rep_snoop = 0, rep_bar = 0, rep_unique = 0;
+
+		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.awvalid && !vif.monitor_cb.awready);
+		s_domain = vif.monitor_cb.awdomain;
+		s_snoop  = vif.monitor_cb.awsnoop;
+		s_bar    = vif.monitor_cb.awbar;
+		s_unique = vif.monitor_cb.awunique;
+
+		while(!(vif.monitor_cb.awvalid && vif.monitor_cb.awready))
+		begin
+			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn || !vif.monitor_cb.awvalid) break;
+			if(!rep_domain && vif.monitor_cb.awdomain !== s_domain)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal AWDOMAIN was changed before being sampled!")
+				rep_domain = 1;
+			end
+			if(!rep_snoop && vif.monitor_cb.awsnoop !== s_snoop)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal AWSNOOP was changed before being sampled!")
+				rep_snoop = 1;
+			end
+			if(!rep_bar && vif.monitor_cb.awbar !== s_bar)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal AWBAR was changed before being sampled!")
+				rep_bar = 1;
+			end
+			if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE && !rep_unique && vif.monitor_cb.awunique !== s_unique)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal AWUNIQUE was changed before being sampled!")
+				rep_unique = 1;
+			end
+		end
+	end
+endtask : aw_ace_signal_stability_check
+
+
+task ovip_ace_monitor::r_ace_signal_stability_check();
+	// RRESP[3:2] (IsShared, PassDirty) must stay stable while RVALID waits for
+	// RREADY. Inherited r_channel_signal_stability_check covers RRESP[1:0].
+	forever
+	begin
+		logic [3:2] s_rresp_hi;
+		bit reported = 0;
+
+		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.rvalid && !vif.monitor_cb.rready);
+		s_rresp_hi = vif.monitor_cb.rresp[3:2];
+
+		while(!(vif.monitor_cb.rvalid && vif.monitor_cb.rready))
+		begin
+			@(vif.monitor_cb);
+			if(!vif.monitor_cb.aresetn || !vif.monitor_cb.rvalid) break;
+			if(!reported && vif.monitor_cb.rresp[3:2] !== s_rresp_hi)
+			begin
+				`uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "Signal RRESP[3:2] was changed before being sampled!")
+				reported = 1;
+			end
+		end
+	end
+endtask : r_ace_signal_stability_check
+
+
 task ovip_ace_monitor::ac_channel_signal_stability_check();
 	// D3.6.2: ACADDR/ACSNOOP/ACPROT must be stable, and ACVALID must stay
 	// asserted, from ACVALID HIGH until the ACREADY handshake. ACADDR is
 	// compared over cfg.acaddr_width bits. A bit that holds X or Z in both
-	// cycles is not a change.
+	// cycles is not a change. Reported at most once per transfer.
 	forever
 	begin
 		logic [`OVIP_ACE_MAX_ACADDR_WIDTH-1 : 0] s_addr;
 		logic [3:0]                              s_snoop;
 		logic [2:0]                              s_prot;
+		bit                                      reported = 0;
 
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.acvalid);
 		s_addr  = vif.monitor_cb.acaddr & ACADDR_MASK;
@@ -327,11 +579,14 @@ task ovip_ace_monitor::ac_channel_signal_stability_check();
 			if(!vif.monitor_cb.aresetn) break;
 			if(!vif.monitor_cb.acvalid)
 			begin
-				`uvm_error({MESSAGE_TAG, "ACE_MON/AC_STABILITY"}, "ACVALID de-asserted before ACREADY (D3.6.2)")
+				`uvm_error({MESSAGE_TAG, "ACE_MON/AC_VALID_DEASSERTED"}, "ACVALID de-asserted before ACREADY (D3.6.2)")
 				break;
 			end
-			if((vif.monitor_cb.acaddr & ACADDR_MASK) !== s_addr || vif.monitor_cb.acsnoop !== s_snoop || vif.monitor_cb.acprot !== s_prot)
+			if(!reported && ((vif.monitor_cb.acaddr & ACADDR_MASK) !== s_addr || vif.monitor_cb.acsnoop !== s_snoop || vif.monitor_cb.acprot !== s_prot))
+			begin
 				`uvm_error({MESSAGE_TAG, "ACE_MON/AC_STABILITY"}, "AC payload (ACADDR/ACSNOOP/ACPROT) changed before ACREADY (D3.6.2)")
+				reported = 1;
+			end
 		end
 	end
 endtask : ac_channel_signal_stability_check
@@ -340,10 +595,11 @@ endtask : ac_channel_signal_stability_check
 task ovip_ace_monitor::cr_channel_signal_stability_check();
 	// CRRESP must be stable and CRVALID must stay asserted from CRVALID HIGH
 	// until the CRREADY handshake. A bit that holds X or Z in both cycles is
-	// not a change.
+	// not a change. Reported at most once per transfer.
 	forever
 	begin
 		logic [4:0] s_resp;
+		bit         reported = 0;
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.crvalid);
 		s_resp = vif.monitor_cb.crresp;
 
@@ -353,11 +609,14 @@ task ovip_ace_monitor::cr_channel_signal_stability_check();
 			if(!vif.monitor_cb.aresetn) break;
 			if(!vif.monitor_cb.crvalid)
 			begin
-				`uvm_error({MESSAGE_TAG, "ACE_MON/CR_STABILITY"}, "CRVALID de-asserted before CRREADY")
+				`uvm_error({MESSAGE_TAG, "ACE_MON/CR_VALID_DEASSERTED"}, "CRVALID de-asserted before CRREADY")
 				break;
 			end
-			if(vif.monitor_cb.crresp !== s_resp)
+			if(!reported && vif.monitor_cb.crresp !== s_resp)
+			begin
 				`uvm_error({MESSAGE_TAG, "ACE_MON/CR_STABILITY"}, "CRRESP changed before CRREADY")
+				reported = 1;
+			end
 		end
 	end
 endtask : cr_channel_signal_stability_check
@@ -367,11 +626,12 @@ task ovip_ace_monitor::cd_channel_signal_stability_check();
 	// CDDATA/CDLAST must be stable and CDVALID must stay asserted from CDVALID
 	// HIGH until the CDREADY handshake. CDDATA is compared over
 	// cfg.cddata_width bits. A bit that holds X or Z in both cycles is not a
-	// change.
+	// change. Reported at most once per transfer.
 	forever
 	begin
 		logic [`OVIP_ACE_MAX_CDDATA_WIDTH-1 : 0] s_data;
 		logic                                    s_last;
+		bit                                      reported = 0;
 		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.cdvalid);
 		s_data = vif.monitor_cb.cddata & CDDATA_MASK;
 		s_last = vif.monitor_cb.cdlast;
@@ -382,11 +642,14 @@ task ovip_ace_monitor::cd_channel_signal_stability_check();
 			if(!vif.monitor_cb.aresetn) break;
 			if(!vif.monitor_cb.cdvalid)
 			begin
-				`uvm_error({MESSAGE_TAG, "ACE_MON/CD_STABILITY"}, "CDVALID de-asserted before CDREADY")
+				`uvm_error({MESSAGE_TAG, "ACE_MON/CD_VALID_DEASSERTED"}, "CDVALID de-asserted before CDREADY")
 				break;
 			end
-			if((vif.monitor_cb.cddata & CDDATA_MASK) !== s_data || vif.monitor_cb.cdlast !== s_last)
+			if(!reported && ((vif.monitor_cb.cddata & CDDATA_MASK) !== s_data || vif.monitor_cb.cdlast !== s_last))
+			begin
 				`uvm_error({MESSAGE_TAG, "ACE_MON/CD_STABILITY"}, "CD payload (CDDATA/CDLAST) changed before CDREADY")
+				reported = 1;
+			end
 		end
 	end
 endtask : cd_channel_signal_stability_check
@@ -431,23 +694,43 @@ endfunction : is_cache_line_transaction
 
 function void ovip_ace_monitor::check_ace_read_address(ovip_ace_trans tr);
 	ovip_ace_arsnoop_t s;
-	string tag = {MESSAGE_TAG, "ACE_MON/RD"};
 
 	// Legal ARSNOOP encoding (Table D3-7). $cast fails on a reserved value.
 	if(!$cast(s, tr.snoop))
 	begin
-		`uvm_error(tag, $sformatf("Reserved ARSNOOP encoding 0b%4b (Table D3-7)", tr.snoop))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/ARSNOOP_RESERVED"}, $sformatf("Reserved ARSNOOP encoding 0b%4b (Table D3-7)", tr.snoop))
 		tr.monitor_error = 1;
 		return;
 	end
 
-	// Coherent reads require an Inner/Outer Shareable domain (D3.1.1).
-	if(is_coherent_cacheable_read(tr.snoop) &&
-	   !(tr.domain inside {OVIP_ACE_DOMAIN_INNER_SHAREABLE, OVIP_ACE_DOMAIN_OUTER_SHAREABLE}))
-	begin
-		`uvm_error(tag, $sformatf("%s must use Inner/Outer Shareable AxDOMAIN, got %s (D3.1.1)", tr.transaction_name(), tr.domain.name()))
-		tr.monitor_error = 1;
-	end
+	// ARDOMAIN per read type (Table D3-7). Coherent reads and DVM require an
+	// Inner/Outer Shareable domain. CleanShared, CleanInvalid and MakeInvalid
+	// may also be Non-shareable, so only System is forbidden. ARSNOOP 0b0000
+	// is legal in every domain.
+	case(s)
+		OVIP_ACE_ARSNOOP_READ_SHARED,
+		OVIP_ACE_ARSNOOP_READ_CLEAN,
+		OVIP_ACE_ARSNOOP_READ_NOT_SHARED_DIRTY,
+		OVIP_ACE_ARSNOOP_READ_UNIQUE,
+		OVIP_ACE_ARSNOOP_CLEAN_UNIQUE,
+		OVIP_ACE_ARSNOOP_MAKE_UNIQUE,
+		OVIP_ACE_ARSNOOP_DVM_COMPLETE,
+		OVIP_ACE_ARSNOOP_DVM_MESSAGE:
+			if(!(tr.domain inside {OVIP_ACE_DOMAIN_INNER_SHAREABLE, OVIP_ACE_DOMAIN_OUTER_SHAREABLE}))
+			begin
+				`uvm_error({MESSAGE_TAG, "ACE_MON/AXDOMAIN"}, $sformatf("%s must use Inner/Outer Shareable AxDOMAIN, got %s (Table D3-7)", tr.transaction_name(), tr.domain.name()))
+				tr.monitor_error = 1;
+			end
+		OVIP_ACE_ARSNOOP_CLEAN_SHARED,
+		OVIP_ACE_ARSNOOP_CLEAN_INVALID,
+		OVIP_ACE_ARSNOOP_MAKE_INVALID:
+			if(tr.domain == OVIP_ACE_DOMAIN_SYSTEM)
+			begin
+				`uvm_error({MESSAGE_TAG, "ACE_MON/AXDOMAIN"}, $sformatf("%s must not use the System AxDOMAIN (Table D3-7)", tr.transaction_name()))
+				tr.monitor_error = 1;
+			end
+		default: ;
+	endcase
 
 	// Cache-line transactions address exactly one cache line (D3.1.6,
 	// Table D3-10). An INCR burst starts at the cache line boundary. A WRAP
@@ -458,17 +741,17 @@ function void ovip_ace_monitor::check_ace_read_address(ovip_ace_trans tr);
 		int total_bytes = (tr.len + 1) * (1 << tr.size);
 		if(tr.burst == OVIP_AXI_BURST_FIXED)
 		begin
-			`uvm_error(tag, $sformatf("%s must use an INCR or WRAP burst, got FIXED (Table D3-10)", tr.transaction_name()))
+			`uvm_error({MESSAGE_TAG, "ACE_MON/CACHE_LINE_BURST"}, $sformatf("%s must use an INCR or WRAP burst, got FIXED (Table D3-10)", tr.transaction_name()))
 			tr.monitor_error = 1;
 		end
 		if(total_bytes != ace_cfg.cache_line_size)
 		begin
-			`uvm_error(tag, $sformatf("%s must transfer exactly one cache line (%0dB), got %0dB (D3.1.6)", tr.transaction_name(), ace_cfg.cache_line_size, total_bytes))
+			`uvm_error({MESSAGE_TAG, "ACE_MON/CACHE_LINE_SIZE"}, $sformatf("%s must transfer exactly one cache line (%0dB), got %0dB (D3.1.6)", tr.transaction_name(), ace_cfg.cache_line_size, total_bytes))
 			tr.monitor_error = 1;
 		end
 		if(tr.burst == OVIP_AXI_BURST_INCR && tr.addr % ace_cfg.cache_line_size != 0)
 		begin
-			`uvm_error(tag, $sformatf("%s INCR start address 0x%0h must be aligned to the cache line size (%0dB) (Table D3-10)", tr.transaction_name(), tr.addr, ace_cfg.cache_line_size))
+			`uvm_error({MESSAGE_TAG, "ACE_MON/CACHE_LINE_ADDR"}, $sformatf("%s INCR start address 0x%0h must be aligned to the cache line size (%0dB) (Table D3-10)", tr.transaction_name(), tr.addr, ace_cfg.cache_line_size))
 			tr.monitor_error = 1;
 		end
 	end
@@ -477,7 +760,7 @@ function void ovip_ace_monitor::check_ace_read_address(ovip_ace_trans tr);
 	// (Table D11-1). ReadOnce/ReadNoSnoop and cache maintenance remain legal.
 	if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE_LITE && is_coherent_cacheable_read(tr.snoop))
 	begin
-		`uvm_error(tag, $sformatf("ACE-Lite master must not issue %s (Table D11-1)", tr.transaction_name()))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/ACE_LITE_TRANS"}, $sformatf("ACE-Lite master must not issue %s (Table D11-1)", tr.transaction_name()))
 		tr.monitor_error = 1;
 	end
 endfunction : check_ace_read_address
@@ -485,12 +768,11 @@ endfunction : check_ace_read_address
 
 function void ovip_ace_monitor::check_ace_write_address(ovip_ace_trans tr);
 	ovip_ace_awsnoop_t s;
-	string tag = {MESSAGE_TAG, "ACE_MON/WR"};
 
 	// Legal AWSNOOP encoding (Table D3-8). $cast fails on a reserved value.
 	if(!$cast(s, tr.snoop[2:0]))
 	begin
-		`uvm_error(tag, $sformatf("Reserved AWSNOOP encoding 0b%3b (Table D3-8)", tr.snoop[2:0]))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/AWSNOOP_RESERVED"}, $sformatf("Reserved AWSNOOP encoding 0b%3b (Table D3-8)", tr.snoop[2:0]))
 		tr.monitor_error = 1;
 		return;
 	end
@@ -503,7 +785,7 @@ function void ovip_ace_monitor::check_ace_write_address(ovip_ace_trans tr);
 		OVIP_ACE_AWSNOOP_EVICT:
 			if(!(tr.domain inside {OVIP_ACE_DOMAIN_INNER_SHAREABLE, OVIP_ACE_DOMAIN_OUTER_SHAREABLE}))
 			begin
-				`uvm_error(tag, $sformatf("%s must use Inner/Outer Shareable AxDOMAIN, got %s (Table D3-8)", tr.transaction_name(), tr.domain.name()))
+				`uvm_error({MESSAGE_TAG, "ACE_MON/AXDOMAIN"}, $sformatf("%s must use Inner/Outer Shareable AxDOMAIN, got %s (Table D3-8)", tr.transaction_name(), tr.domain.name()))
 				tr.monitor_error = 1;
 			end
 		OVIP_ACE_AWSNOOP_WRITE_CLEAN,
@@ -511,7 +793,7 @@ function void ovip_ace_monitor::check_ace_write_address(ovip_ace_trans tr);
 		OVIP_ACE_AWSNOOP_WRITE_EVICT:
 			if(tr.domain == OVIP_ACE_DOMAIN_SYSTEM)
 			begin
-				`uvm_error(tag, $sformatf("%s must not use the System AxDOMAIN (Table D3-8)", tr.transaction_name()))
+				`uvm_error({MESSAGE_TAG, "ACE_MON/AXDOMAIN"}, $sformatf("%s must not use the System AxDOMAIN (Table D3-8)", tr.transaction_name()))
 				tr.monitor_error = 1;
 			end
 		default: ;
@@ -521,19 +803,19 @@ function void ovip_ace_monitor::check_ace_write_address(ovip_ace_trans tr);
 	// deassert it, and every other write may do either.
 	if(s == OVIP_ACE_AWSNOOP_WRITE_EVICT && !tr.awunique)
 	begin
-		`uvm_error(tag, "WriteEvict must assert AWUNIQUE (Table D3-9)")
+		`uvm_error({MESSAGE_TAG, "ACE_MON/AWUNIQUE"}, "WriteEvict must assert AWUNIQUE (Table D3-9)")
 		tr.monitor_error = 1;
 	end
 	if(s == OVIP_ACE_AWSNOOP_WRITE_CLEAN && tr.awunique)
 	begin
-		`uvm_error(tag, "WriteClean must deassert AWUNIQUE (Table D3-9)")
+		`uvm_error({MESSAGE_TAG, "ACE_MON/AWUNIQUE"}, "WriteClean must deassert AWUNIQUE (Table D3-9)")
 		tr.monitor_error = 1;
 	end
 
 	// WriteEvict requires the master to advertise support for it (D2.1.2).
 	if(tr.snoop[2:0] == OVIP_ACE_AWSNOOP_WRITE_EVICT && !ace_cfg.supports_write_evict)
 	begin
-		`uvm_error(tag, "WriteEvict issued but cfg.supports_write_evict is 0 (D2.1.2)")
+		`uvm_error({MESSAGE_TAG, "ACE_MON/WRITE_EVICT_UNSUPPORTED"}, "WriteEvict issued but cfg.supports_write_evict is 0 (D2.1.2)")
 		tr.monitor_error = 1;
 	end
 
@@ -542,7 +824,7 @@ function void ovip_ace_monitor::check_ace_write_address(ovip_ace_trans tr);
 	if(ace_cfg.profile == OVIP_ACE_PROFILE_ACE_LITE &&
 	   !(tr.snoop[2:0] inside {OVIP_ACE_AWSNOOP_WRITE_NO_SNOOP_OR_WRITE_UNIQUE, OVIP_ACE_AWSNOOP_WRITE_LINE_UNIQUE}))
 	begin
-		`uvm_error(tag, $sformatf("ACE-Lite master must not issue %s (Table D11-2)", tr.transaction_name()))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/ACE_LITE_TRANS"}, $sformatf("ACE-Lite master must not issue %s (Table D11-2)", tr.transaction_name()))
 		tr.monitor_error = 1;
 	end
 endfunction : check_ace_write_address
@@ -550,42 +832,43 @@ endfunction : check_ace_write_address
 
 function void ovip_ace_monitor::check_snoop(ovip_ace_trans tr);
 	ovip_ace_acsnoop_t s;
-	string tag = {MESSAGE_TAG, "ACE_MON/SNOOP"};
-	bit is_dvm;
+	bit is_dvm = 0;
 
 	// Legal ACSNOOP encoding -- a strict subset of ARSNOOP (Table D3-19).
 	if(!$cast(s, tr.acsnoop_code))
 	begin
-		`uvm_error(tag, $sformatf("Reserved ACSNOOP encoding 0b%4b (Table D3-19)", tr.acsnoop_code))
+		`uvm_error({MESSAGE_TAG, "ACE_MON/ACSNOOP_RESERVED"}, $sformatf("Reserved ACSNOOP encoding 0b%4b (Table D3-19)", tr.acsnoop_code))
 		tr.monitor_error = 1;
-		return;
 	end
-
-	is_dvm = (s == OVIP_ACE_ACSNOOP_DVM_COMPLETE || s == OVIP_ACE_ACSNOOP_DVM_MESSAGE);
+	else
+		is_dvm = (s == OVIP_ACE_ACSNOOP_DVM_COMPLETE || s == OVIP_ACE_ACSNOOP_DVM_MESSAGE);
 
 	// A DVM snoop never transfers snoop data (D13.2.5).
 	if(is_dvm && tr.snoop_resp.data_transfer)
 	begin
-		`uvm_error(tag, "CRRESP.DataTransfer set on a DVM snoop; DVM must not transfer data (D13.2.5)")
+		`uvm_error({MESSAGE_TAG, "ACE_MON/CRRESP_DVM_DATA"}, "CRRESP.DataTransfer set on a DVM snoop; DVM must not transfer data (D13.2.5)")
 		tr.monitor_error = 1;
 	end
 
 	// PassDirty is only meaningful when data is transferred (Table D3-22).
 	if(tr.snoop_resp.pass_dirty && !tr.snoop_resp.data_transfer)
 	begin
-		`uvm_error(tag, "CRRESP.PassDirty set without CRRESP.DataTransfer (Table D3-22)")
+		`uvm_error({MESSAGE_TAG, "ACE_MON/CRRESP_PASS_DIRTY"}, "CRRESP.PassDirty set without CRRESP.DataTransfer (Table D3-22)")
 		tr.monitor_error = 1;
 	end
 
-	// When data is transferred, the CD burst must carry exactly one cache line.
-	if(tr.snoop_resp.data_transfer)
+	// When DataTransfer is set, the CD burst must carry one cache line; when
+	// clear, 0 CD beats are permitted.
 	begin
 		int bytes_per_beat = ace_cfg.cddata_width / 8;
-		int expected_beats = (bytes_per_beat > 0) ?
-			(ace_cfg.cache_line_size + bytes_per_beat - 1) / bytes_per_beat : 0;
+		int expected_beats = !tr.snoop_resp.data_transfer ? 0 :
+			((bytes_per_beat > 0) ? (ace_cfg.cache_line_size + bytes_per_beat - 1) / bytes_per_beat : 0);
 		if(tr.snoop_data_beats.size() != expected_beats)
-			`uvm_error(tag, $sformatf("Snoop data transferred %0d CD beats; expected %0d (cache_line_size %0dB / cddata_width %0db)",
-				tr.snoop_data_beats.size(), expected_beats, ace_cfg.cache_line_size, ace_cfg.cddata_width))
+		begin
+			`uvm_error({MESSAGE_TAG, "ACE_MON/CD_BEATS"}, $sformatf("Snoop data transferred %0d CD beat(s); expected %0d (CRRESP.DataTransfer=%0b, cache_line_size %0dB, cddata_width %0db)",
+				tr.snoop_data_beats.size(), expected_beats, tr.snoop_resp.data_transfer, ace_cfg.cache_line_size, ace_cfg.cddata_width))
+			tr.monitor_error = 1;
+		end
 	end
 endfunction : check_snoop
 

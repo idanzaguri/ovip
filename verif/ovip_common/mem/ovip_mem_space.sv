@@ -142,7 +142,7 @@ function void ovip_mem_space::add_striped_region(string name, addr_t base, addr_
 	// (k mod N) at (k div N)*granule, and the last chunk may be partial
 	begin
 		int    n = stripe_subs.size();
-		addr_t chunks = (size + granule - 1) / granule;
+		addr_t chunks = (size - 1) / granule + 1;
 		foreach (stripe_subs[j])
 		begin
 			addr_t count, last, last_size;
@@ -169,6 +169,23 @@ function bit ovip_mem_space::insert_region(region_t r);
 	begin
 		`uvm_fatal("MEM_SPACE/BAD_REGION", $sformatf("region '%s': 0x%0h + 0x%0h wraps the address space", r.name, r.base, r.size))
 		return 0;
+	end
+	begin
+		addr_t sub_size = r.size;
+		if (r.granule > 0)
+		begin
+			int    n         = r.subs.size();
+			addr_t chunks    = (r.size - 1) / r.granule + 1;
+			addr_t count     = (chunks - 1) / n + 1;
+			addr_t last      = n * (count - 1);
+			addr_t last_size = (last == chunks - 1 && r.size % r.granule != 0) ? r.size % r.granule : r.granule;
+			sub_size = (count - 1) * r.granule + last_size;
+		end
+		if (r.sub_base + sub_size - 1 < r.sub_base)
+		begin
+			`uvm_fatal("MEM_SPACE/BAD_REGION", $sformatf("region '%s': sub_base 0x%0h + 0x%0h wraps the sub address space", r.name, r.sub_base, sub_size))
+			return 0;
+		end
 	end
 	foreach (r.subs[i])
 		if (r.subs[i] < 0 || r.subs[i] >= subs.size())
@@ -264,6 +281,8 @@ endfunction : resolve
 function bit ovip_mem_space::covers(addr_t addr, addr_t size);
 	addr_t pos = 0;
 	int sub; addr_t sub_addr, run;
+	if (size == 0) return 1;
+	if (size - 1 > ~addr) return 0;
 	while (pos < size)
 	begin
 		if (!resolve(addr + pos, sub, sub_addr, run)) return 0;
@@ -310,6 +329,11 @@ endfunction : write_bytestream
 function ovip_bytestream ovip_mem_space::read_bytestream(addr_t addr, int size);
 	ovip_bytestream out;
 	int pos = 0;
+	if (size < 0)
+	begin
+		`uvm_error("MEM_SPACE/BAD_ACCESS", $sformatf("read at 0x%0h: negative size %0d; nothing read", addr, size))
+		return out;
+	end
 	if (!covers(addr, size))
 	begin
 		`uvm_error("MEM_SPACE/HOLE", $sformatf("read of %0d bytes at 0x%0h touches an address no region covers; nothing read", size, addr))
@@ -352,7 +376,7 @@ endfunction : read
 
 function void ovip_mem_space::fill_random(addr_t addr, addr_t size);
 	ovip_bytestream bytes;
-	repeat (size) bytes.push_back($urandom);
+	for (addr_t i = 0; i < size; i++) bytes.push_back($urandom);
 	write_bytestream(addr, bytes);
 endfunction : fill_random
 

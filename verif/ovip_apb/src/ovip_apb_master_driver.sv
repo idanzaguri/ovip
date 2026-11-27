@@ -208,18 +208,18 @@ endtask : drive_transfer
 // Too-wide fields are flagged here and masked at drive time.
 function bit ovip_apb_master_driver::check_trans_validity(ovip_apb_trans tr);
 	bit err_flag = 0;
-	`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "PADDR", tr.addr, cfg.addr_width, err_flag)
+	`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK/WIDTH"}, "PADDR", tr.addr, cfg.addr_width, err_flag)
 	if(tr.write)
 	begin
-		`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "PWDATA", tr.wdata, cfg.data_width*8, err_flag)
+		`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK/WIDTH"}, "PWDATA", tr.wdata, cfg.data_width*8, err_flag)
 		// strb is driven only on an agent with PSTRB. All ones means every
 		// lane of the bus, whatever its width (the default of apb_write).
 		if(cfg.pstrb_en && !(&tr.strb))
-			`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "PSTRB",  tr.strb,  cfg.data_width,   err_flag)
+			`OVIP_APB_CHECK_VALUE_VS_SIGNAL_WIDTH({MESSAGE_TAG, "APB_DRV/TR_CHK/WIDTH"}, "PSTRB",  tr.strb,  cfg.data_width,   err_flag)
 	end
 	else if(tr.strb != 0)
 	begin
-		`uvm_warning({MESSAGE_TAG, "APB_DRV/TR_CHK"}, "strb != 0 on a read transfer -- PSTRB will be driven LOW per spec section 3.2")
+		`uvm_warning({MESSAGE_TAG, "APB_DRV/TR_CHK/READ_STRB"}, "strb != 0 on a read transfer -- PSTRB will be driven LOW per spec section 3.2")
 		err_flag = 1;
 	end
 	return err_flag;

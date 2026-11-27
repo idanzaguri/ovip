@@ -26,7 +26,7 @@ class ovip_apb_base_master_sequence extends uvm_sequence#(ovip_apb_trans);
 	virtual task apb_write(ovip_apb_addr_t addr, ovip_apb_data_t data,
 	                       ovip_apb_strb_t strb = '1, ovip_apb_prot_t prot = '0,
 	                       output bit slverr);
-		ovip_apb_trans tr = ovip_apb_trans::type_id::create("wr_tr");
+		ovip_apb_trans tr = ovip_apb_trans::type_id::create("wr_tr", null, get_full_name());
 		tr.addr   = addr;
 		tr.write  = 1;
 		tr.wdata  = data;
@@ -41,7 +41,7 @@ class ovip_apb_base_master_sequence extends uvm_sequence#(ovip_apb_trans);
 	// Blocking read. Returns the read data and the completer's error response.
 	virtual task apb_read(ovip_apb_addr_t addr, output ovip_apb_data_t data,
 	                      output bit slverr, input ovip_apb_prot_t prot = '0);
-		ovip_apb_trans tr = ovip_apb_trans::type_id::create("rd_tr");
+		ovip_apb_trans tr = ovip_apb_trans::type_id::create("rd_tr", null, get_full_name());
 		tr.addr   = addr;
 		tr.write  = 0;
 		tr.strb   = 0;

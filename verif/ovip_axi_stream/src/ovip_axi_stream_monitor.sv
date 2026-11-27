@@ -206,7 +206,7 @@ task ovip_axi_stream_monitor::tvalid_low_during_reset_check();
 		while(vif.monitor_cb.aresetn == 1'b0)
 		begin
 			if(vif.monitor_cb.tvalid === 1'b1)
-				`uvm_error({MESSAGE_TAG, "AXIS_MON/RESET"}, "TVALID asserted while ARESETn is asserted (spec section 2.8.2).")
+				`uvm_error({MESSAGE_TAG, "AXIS_MON/VALID_IN_RESET"}, "TVALID asserted while ARESETn is asserted (spec section 2.8.2).")
 			@(vif.monitor_cb);
 		end
 	end
@@ -223,7 +223,7 @@ endtask : tvalid_low_during_reset_check
 task ovip_axi_stream_monitor::exit_from_reset_check();
 	if(!reset_seen) return;
 	if(vif.monitor_cb.tvalid === 1'b1)
-		`uvm_error({MESSAGE_TAG, "AXIS_MON/RESET"}, "TVALID asserted on the same ACLK edge where ARESETn was first sampled HIGH -- spec section 2.8.2 requires TVALID to remain LOW for that edge.")
+		`uvm_error({MESSAGE_TAG, "AXIS_MON/VALID_AT_RESET_EXIT"}, "TVALID asserted on the same ACLK edge where ARESETn was first sampled HIGH -- spec section 2.8.2 requires TVALID to remain LOW for that edge.")
 endtask : exit_from_reset_check
 
 
@@ -353,7 +353,7 @@ task ovip_axi_stream_monitor::stability_check();
 			// threads wake on that edge in either order, so the reset comes first.
 			if(vif.monitor_cb.aresetn !== 1'b1) break;
 			if(vif.monitor_cb.tvalid !== 1'b1)
-				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TVALID deasserted before TREADY -- once HIGH, TVALID must stay HIGH until handshake (spec section 2.2).")
+				`uvm_error({MESSAGE_TAG, "AXIS_MON/VALID_DEASSERTED"}, "TVALID deasserted before TREADY -- once HIGH, TVALID must stay HIGH until handshake (spec section 2.2).")
 			if(cfg.tdata_width > 0 && snap_tdata !== (vif.monitor_cb.tdata & data_mask))
 				`uvm_error({MESSAGE_TAG, "AXIS_MON/STABILITY"}, "TDATA changed between TVALID assertion and handshake.")
 			if(cfg.tstrb_en && snap_tstrb !== (vif.monitor_cb.tstrb & STRB_MASK))
@@ -405,12 +405,17 @@ task ovip_axi_stream_monitor::bus_monitor();
 	ovip_axi_stream_id_t   tid;
 	ovip_axi_stream_dest_t tdest;
 	stream_key_t           key;
+	// The thread starts on the first clock edge with ARESETn HIGH. A transfer
+	// on that edge is taken like one on any later edge.
+	bit on_start_edge = 1;
 
 	forever
 	begin
 		// A transfer. Without TREADY on the interface it counts as HIGH (spec
 		// section 3.1.1): every cycle with TVALID HIGH is a transfer.
-		@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.tvalid && (!cfg.tready_en || vif.monitor_cb.tready));
+		if(!(on_start_edge && (vif.monitor_cb.tvalid & (!cfg.tready_en | vif.monitor_cb.tready)) === 1'b1))
+			@(vif.monitor_cb iff vif.monitor_cb.aresetn && vif.monitor_cb.tvalid && (!cfg.tready_en || vif.monitor_cb.tready));
+		on_start_edge = 0;
 
 		// The stream of this transfer, and its open packet.
 		tid   = cfg.tid_en   ? (vif.monitor_cb.tid   & ID_MASK)   : '0;
@@ -421,7 +426,7 @@ task ovip_axi_stream_monitor::bus_monitor();
 			tr = open_tr[key];
 		else
 		begin
-			tr = ovip_axi_stream_trans::type_id::create("axis_tr");
+			tr = ovip_axi_stream_trans::type_id::create("axis_tr", this);
 			tr.bus_width           = cfg.tdata_width;
 			tr.tuser_bits_per_byte = cfg.tuser_bits_per_byte;
 			tr.tvalid_assert_time  = $realtime; // the first handshake, not the TVALID rise
@@ -581,8 +586,9 @@ function void ovip_axi_stream_monitor::send_rsp_req(ovip_axi_stream_trans tr);
 	if(cfg.is_active   != UVM_ACTIVE)              return;
 	if(!has_rsp_req_reader)                        return;
 	begin
-		ovip_axi_stream_trans rsp = ovip_axi_stream_trans::type_id::create("rsp_req");
-		rsp.copy(tr);
+		ovip_axi_stream_trans rsp;
+		if(!$cast(rsp, tr.clone())) `uvm_fatal("CAST_FAILED", "ovip_axi_stream_monitor::send_rsp_req: clone failed")
+		rsp.set_name("rsp_req");
 		pending_rsp_req.push_back(rsp);
 	end
 endfunction : send_rsp_req

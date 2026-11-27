@@ -26,6 +26,7 @@ class ovip_axi_trans_logger extends uvm_subscriber #(ovip_axi_trans);
 	string                      file_name = "";          // per-agent file (empty => disabled)
 	string                      combined_file_name = ""; // shared file (empty => none)
 	ovip_axi_trans_log_format_e format = OVIP_AXI_TRANS_LOG_TABLE;
+	ovip_axi_trans              header_proto;            // optional prototype for log_header() (e.g. ovip_ace_trans)
 
 	protected int fd = 0;
 
@@ -52,9 +53,9 @@ endclass : ovip_axi_trans_logger
 
 
 function void ovip_axi_trans_logger::start_of_simulation_phase(uvm_phase phase);
-	// A factory-created trans so the header matches the actual (possibly ACE)
-	// transaction type via the agent's type override.
-	ovip_axi_trans hdr = ovip_axi_trans::type_id::create("log_hdr");
+	// Use header_proto when set (e.g. ovip_ace_agent), else create a trans in
+	// this component's context so scoped instance overrides still apply.
+	ovip_axi_trans hdr = (header_proto != null) ? header_proto : ovip_axi_trans::type_id::create("log_hdr", this);
 	string header = $sformatf("%-11s %-9s %s", "end_time", "agent", hdr.log_header());
 	super.start_of_simulation_phase(phase);
 

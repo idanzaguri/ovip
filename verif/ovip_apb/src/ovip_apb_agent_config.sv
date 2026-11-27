@@ -58,11 +58,31 @@ class ovip_apb_agent_config extends uvm_object;
 	string trans_log_combined_file = "";
 	ovip_apb_trans_log_format_e trans_log_format = OVIP_APB_TRANS_LOG_TABLE;
 
+	// How this agent reports its checks. Filled by set_check_severity() and
+	// set_check_action() below, and applied by the agent in connect_phase.
+	ovip_check_reports check_reports;
+
 	`uvm_object_utils(ovip_apb_agent_config)
 
 	function new(string name = "ovip_apb_agent_config");
 		super.new(name);
+		check_reports = ovip_check_reports::type_id::create("check_reports");
 	endfunction : new
+
+
+	// The check with the message ID `id` is reported by this agent with
+	// `severity` in place of UVM_WARNING or UVM_ERROR. The README lists the
+	// IDs. Give the ID without the agent tag, before the agent's connect_phase.
+	function void set_check_severity(string id, uvm_severity severity);
+		check_reports.set_severity(id, severity);
+	endfunction : set_check_severity
+
+
+	// The report of the check `id` gets the UVM action `action`.
+	// UVM_NO_ACTION prints nothing and counts nothing.
+	function void set_check_action(string id, uvm_action action);
+		check_reports.set_action(id, action);
+	endfunction : set_check_action
 
 
 	// copy() and clone() carry every field. A new field goes in here too.
@@ -88,6 +108,7 @@ class ovip_apb_agent_config extends uvm_object;
 		trans_log_file               = c.trans_log_file;
 		trans_log_combined_file      = c.trans_log_combined_file;
 		trans_log_format             = c.trans_log_format;
+		check_reports.copy(c.check_reports);
 	endfunction : do_copy
 
 

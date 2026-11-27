@@ -198,11 +198,15 @@ task ovip_apb_monitor::bus_monitor();
 	bit at_setup = 0;
 	// PSEL and PENABLE were both HIGH on the last cycle, and it was reported.
 	bit access_reported = 0;
+	// The thread starts on the first clock edge with PRESETn HIGH. A SETUP
+	// cycle on that edge is taken like one on any later edge.
+	bit on_start_edge = 1;
 	forever
 	begin
 		while(!at_setup)
 		begin
-			@(vif.monitor_cb);
+			if(!on_start_edge) @(vif.monitor_cb);
+			on_start_edge = 0;
 			// A cycle sampled with PRESETn LOW starts nothing: rst_monitor
 			// ends this thread on the same edge, before or after it wakes.
 			if(vif.monitor_cb.presetn !== 1'b1) continue;
@@ -211,7 +215,7 @@ task ovip_apb_monitor::bus_monitor();
 			else if(vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable === 1'b1)
 			begin
 				if(!access_reported)
-					`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PSEL and PENABLE HIGH with no transfer in progress: an ACCESS cycle must follow a SETUP cycle (spec section 4.1).")
+					`uvm_error({MESSAGE_TAG, "APB_MON/FSM_ACCESS_NO_SETUP"}, "PSEL and PENABLE HIGH with no transfer in progress: an ACCESS cycle must follow a SETUP cycle (spec section 4.1).")
 				access_reported = 1;
 			end
 			else
@@ -250,12 +254,12 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 	if(vif.monitor_cb.presetn !== 1'b1) return;
 	if(vif.monitor_cb.psel !== 1'b1)
 	begin
-		`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PSEL deasserted after the SETUP cycle -- a started transfer must proceed to ACCESS and complete (spec section 4.1).")
+		`uvm_error({MESSAGE_TAG, "APB_MON/FSM_SETUP_ABORTED"}, "PSEL deasserted after the SETUP cycle -- a started transfer must proceed to ACCESS and complete (spec section 4.1).")
 		return;
 	end
 	if(vif.monitor_cb.penable !== 1'b1)
 	begin
-		`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PENABLE not asserted on the cycle after SETUP -- SETUP must last exactly one cycle (spec section 4.1).")
+		`uvm_error({MESSAGE_TAG, "APB_MON/FSM_SETUP_LENGTH"}, "PENABLE not asserted on the cycle after SETUP -- SETUP must last exactly one cycle (spec section 4.1).")
 		at_setup = 1; // the current cycle looks like a fresh SETUP; recover there
 		return;
 	end
@@ -275,7 +279,7 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 		if(vif.monitor_cb.presetn !== 1'b1) return;   // a reset ends the transfer (see above)
 		if(vif.monitor_cb.psel !== 1'b1 || vif.monitor_cb.penable !== 1'b1)
 		begin
-			`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PSEL/PENABLE deasserted while PREADY was LOW -- the ACCESS state must be held until the completer asserts PREADY (spec section 4.1).")
+			`uvm_error({MESSAGE_TAG, "APB_MON/FSM_ACCESS_ABORTED"}, "PSEL/PENABLE deasserted while PREADY was LOW -- the ACCESS state must be held until the completer asserts PREADY (spec section 4.1).")
 			at_setup = (vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable !== 1'b1);
 			return;
 		end
@@ -292,13 +296,13 @@ task ovip_apb_monitor::track_transfer(output bit at_setup);
 	@(vif.monitor_cb);
 	if(vif.monitor_cb.presetn !== 1'b1) return;   // a reset: no check, and no next SETUP (see above)
 	if(vif.monitor_cb.penable === 1'b1)
-		`uvm_error({MESSAGE_TAG, "APB_MON/FSM"}, "PENABLE still asserted on the cycle after the transfer completed (spec section 3.1: PENABLE is deasserted at the end of the transfer).")
+		`uvm_error({MESSAGE_TAG, "APB_MON/FSM_PENABLE_HELD"}, "PENABLE still asserted on the cycle after the transfer completed (spec section 3.1: PENABLE is deasserted at the end of the transfer).")
 	at_setup = (vif.monitor_cb.psel === 1'b1 && vif.monitor_cb.penable !== 1'b1);
 endtask : track_transfer
 
 
 function ovip_apb_trans ovip_apb_monitor::sample_request();
-	ovip_apb_trans tr = ovip_apb_trans::type_id::create("apb_tr");
+	ovip_apb_trans tr = ovip_apb_trans::type_id::create("apb_tr", this);
 	tr.bus_width  = cfg.data_width;
 	tr.setup_time = $realtime;
 	tr.addr  = vif.monitor_cb.paddr & ADDR_MASK;
@@ -382,16 +386,24 @@ function void ovip_apb_monitor::send_rsp_req(ovip_apb_trans tr);
 	if(cfg.agent_type != OVIP_APB_COMPLETER) return;
 	if(cfg.is_active  != UVM_ACTIVE)         return;
 	begin
-		ovip_apb_trans rsp = ovip_apb_trans::type_id::create("rsp_req");
-		rsp.copy(tr);
+		ovip_apb_trans rsp;
+		if(!$cast(rsp, tr.clone())) `uvm_fatal("CAST_FAILED", "ovip_apb_monitor::send_rsp_req: clone failed")
+		rsp.set_name("rsp_req");
 		pending_rsp_req.push_back(rsp);
 	end
 endfunction : send_rsp_req
 
 
 task ovip_apb_monitor::get(output ovip_apb_trans tr);
-	wait(pending_rsp_req.size());
-	tr = pending_rsp_req.pop_front();
+	forever
+	begin
+		wait(pending_rsp_req.size());
+		if(pending_rsp_req.size())
+		begin
+			tr = pending_rsp_req.pop_front();
+			return;
+		end
+	end
 endtask : get
 
 `endif

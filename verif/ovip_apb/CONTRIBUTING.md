@@ -34,6 +34,11 @@ The VIP is SystemVerilog targeting **UVM 1.2**:
 - **Indentation:** tabs.
 - **Include guards:** wrap every `.sv` include file in
   `` `ifndef <FILE>__SV `` / `` `define `` / `` `endif ``.
+- **Message IDs:** every check (a rule that is reported as `uvm_error` or
+  `uvm_warning`) has a message ID of its own. Do not give a new check the ID
+  of another check: a user selects a check by its ID
+  (`cfg.set_check_severity()`). Add the new ID to the "Check Reports" tables
+  of the README.
 - **Comments:** explain *why* something non-obvious is done, not *what* the
   code does. Each file opens with a short header describing its purpose and
   where to look next.

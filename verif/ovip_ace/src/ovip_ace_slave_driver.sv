@@ -18,6 +18,8 @@ class ovip_ace_slave_driver extends ovip_axi_slave_driver #(virtual ovip_ace_age
 	// Cast of the inherited cfg so ACE-specific knobs are reachable.
 	ovip_ace_agent_config ace_cfg;
 
+	ovip_ace_cddata_t CDDATA_MASK;
+
 	// Inbound snoop requests from the test sequence (push via push_snoop()).
 	mailbox#(ovip_ace_trans) snoop_request_mb;
 
@@ -29,6 +31,7 @@ class ovip_ace_slave_driver extends ovip_axi_slave_driver #(virtual ovip_ace_age
 	endfunction : new
 
 	extern virtual function void build_phase(uvm_phase phase);
+	extern virtual task run_phase(uvm_phase phase);
 
 	// A reset drops the snoops that wait in snoop_request_mb.
 	extern virtual function void reset_internal_state();
@@ -63,6 +66,12 @@ function void ovip_ace_slave_driver::build_phase(uvm_phase phase);
 endfunction : build_phase
 
 
+task ovip_ace_slave_driver::run_phase(uvm_phase phase);
+	CDDATA_MASK = (ovip_ace_cddata_t'(1) << ace_cfg.cddata_width) - 1;
+	super.run_phase(phase);
+endtask : run_phase
+
+
 function void ovip_ace_slave_driver::reset_internal_state();
 	ovip_ace_trans dropped;
 	super.reset_internal_state();
@@ -89,9 +98,8 @@ endfunction : drive_snoop_channel_reset_values
 
 function void ovip_ace_slave_driver::drive_r_channel_reset_values();
 	super.drive_r_channel_reset_values();
-	// rresp upper bits already zeroed by super (super writes full 4-bit
-	// rresp from a 2-bit tr.resp -- zero-extended). Nothing to do here in
-	// addition; kept for clarity.
+	// super drives idle_value() onto the 4-bit rresp (0, or random when
+	// cfg.randomize_idle_payload is 1) while RVALID is LOW. Nothing to add.
 endfunction : drive_r_channel_reset_values
 
 
@@ -168,11 +176,11 @@ task ovip_ace_slave_driver::snoop_request_driver();
 		vif.slave_cb.crready <= 1'b1;
 		@(vif.slave_cb iff vif.slave_cb.crvalid);
 		snoop_tr.snoop_resp = '{
-		    was_unique:    vif.monitor_cb.crresp[4],
-		    is_shared:     vif.monitor_cb.crresp[3],
-		    pass_dirty:    vif.monitor_cb.crresp[2],
-		    error:         vif.monitor_cb.crresp[1],
-		    data_transfer: vif.monitor_cb.crresp[0]
+		    was_unique:    vif.slave_cb.crresp[4],
+		    is_shared:     vif.slave_cb.crresp[3],
+		    pass_dirty:    vif.slave_cb.crresp[2],
+		    error:         vif.slave_cb.crresp[1],
+		    data_transfer: vif.slave_cb.crresp[0]
 		};
 		vif.slave_cb.crready <= 1'b0;
 
@@ -183,8 +191,8 @@ task ovip_ace_slave_driver::snoop_request_driver();
 			snoop_tr.snoop_data_beats.delete();
 			forever begin
 				@(vif.slave_cb iff vif.slave_cb.cdvalid);
-				snoop_tr.snoop_data_beats.push_back(vif.monitor_cb.cddata);
-				if(vif.monitor_cb.cdlast) break;
+				snoop_tr.snoop_data_beats.push_back(vif.slave_cb.cddata & CDDATA_MASK);
+				if(vif.slave_cb.cdlast) break;
 			end
 			vif.slave_cb.cdready <= 1'b0;
 		end

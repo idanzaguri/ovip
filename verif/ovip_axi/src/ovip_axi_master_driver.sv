@@ -292,7 +292,7 @@ endtask : raddr_phase_driver
 function void ovip_axi_master_driver::sample_rd_response(ovip_axi_trans tr);
 
 	ovip_axi_data_t	rdata = vif.master_cb.rdata & DATA_MASK;
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
+	if(cfg.auto_byte_lanes_alignment && tr.burst_index <= tr.len && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
 
@@ -420,7 +420,7 @@ endfunction : drive_w_channel_reset_values
 function void ovip_axi_master_driver::drive_w_channel(ovip_axi_trans tr);
 	ovip_axi_data_t wdata;
 	ovip_axi_strb_t wstrb;
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
+	if(cfg.auto_byte_lanes_alignment && tr.burst_index <= tr.len && (tr.is_narrow_transfer || tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))
 	begin
 		wdata = tr.data_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index]*8;
 		wstrb = tr.strb_beats[tr.burst_index]<<tr.transfer_starting_byte_lane[tr.burst_index];
@@ -662,42 +662,42 @@ endtask : bresp_phase_driver
 //
 function bit ovip_axi_master_driver::check_write_trans_validity(ovip_axi_trans tr);
 	bit err_flag = 0;
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "AWUSER", tr.awuser, cfg.awuser_width, err_flag)
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "WUSER",  tr.wuser,  cfg.wuser_width,  err_flag)
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "ID",     tr.id,     cfg.wr_id_width,  err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "AWUSER", tr.awuser, cfg.awuser_width, err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "WUSER",  tr.wuser,  cfg.wuser_width,  err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "ID",     tr.id,     cfg.wr_id_width,  err_flag)
 
 	if(tr.len+1 > tr.data_beats.size())
 	begin
 		err_flag = 1;
-		`uvm_warning("TR_CHK", $sformatf("Number of data beats(%0d) smaller than burst length (%0d)", tr.data_beats.size(), tr.len+1))
+		`uvm_warning("TR_CHK/DATA_BEATS", $sformatf("Number of data beats(%0d) smaller than burst length (%0d)", tr.data_beats.size(), tr.len+1))
 	end
 	if(tr.len+1 > tr.strb_beats.size())
 	begin
 		err_flag = 1;
-		`uvm_warning("TR_CHK", $sformatf("Number of wstrb beats(%0d) smaller than burst length (%0d)", tr.strb_beats.size(), tr.len+1))
+		`uvm_warning("TR_CHK/STRB_BEATS", $sformatf("Number of wstrb beats(%0d) smaller than burst length (%0d)", tr.strb_beats.size(), tr.len+1))
 	end
 
 	foreach(tr.data_beats[ii])
-		`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", $sformatf("data_beats[%0d]",ii), tr.data_beats[ii], cfg.bus_width*8, err_flag)
+		`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", $sformatf("data_beats[%0d]",ii), tr.data_beats[ii], cfg.bus_width*8, err_flag)
 
 	return err_flag;
 endfunction
 
 function bit ovip_axi_master_driver::check_read_trans_validity(ovip_axi_trans tr);
 	bit err_flag = 0;
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "ID",     tr.id,    cfg.rd_id_width,  err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "ID",     tr.id,    cfg.rd_id_width,  err_flag)
 	return err_flag;
 endfunction
 
 function bit ovip_axi_master_driver::check_trans_validity(ovip_axi_trans tr);
 	bit err_flag;
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "ADDR", tr.addr, cfg.addr_width, err_flag)
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "LEN",  tr.len,  cfg.len_width,  err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "ADDR", tr.addr, cfg.addr_width, err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "LEN",  tr.len,  cfg.len_width,  err_flag)
 
 	if(2**tr.size > int'(cfg.bus_width))
 	begin
 		err_flag = 1;
-		`uvm_warning("TR_CHK", $sformatf("AxSIZE=%0d(%0dB) > BUS_WIDTH=%0dB",tr.size,2**tr.size,int'(cfg.bus_width)))
+		`uvm_warning("TR_CHK/AXSIZE", $sformatf("AxSIZE=%0d(%0dB) > BUS_WIDTH=%0dB",tr.size,2**tr.size,int'(cfg.bus_width)))
 	end
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
@@ -705,12 +705,12 @@ function bit ovip_axi_master_driver::check_trans_validity(ovip_axi_trans tr);
 		if(tr.len != 0)
 		begin
 			err_flag = 1;
-			`uvm_warning("TR_CHK", $sformatf("On AXI4-Lite, AxLEN(%0d) must be 0!",tr.len))
+			`uvm_warning("TR_CHK/LITE_LEN", $sformatf("On AXI4-Lite, AxLEN(%0d) must be 0!",tr.len))
 		end
 		if(2**tr.size != int'(cfg.bus_width))
 		begin
 			err_flag = 1;
-			`uvm_warning("TR_CHK", $sformatf("On AXI4-Lite AxSIZE=%0d(%0dB) must be equal to BUS_WIDTH(%0dB)",tr.size,2**tr.size,int'(cfg.bus_width)))
+			`uvm_warning("TR_CHK/LITE_SIZE", $sformatf("On AXI4-Lite AxSIZE=%0d(%0dB) must be equal to BUS_WIDTH(%0dB)",tr.size,2**tr.size,int'(cfg.bus_width)))
 		end
 	end
 
@@ -718,28 +718,28 @@ function bit ovip_axi_master_driver::check_trans_validity(ovip_axi_trans tr);
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI3 && tr.len > 15)
 	begin
 		err_flag = 1;
-		`uvm_warning("TR_CHK", $sformatf("On AXI3, AxLEN(%0d) must be 15 or less: a burst has 16 transfers at most", tr.len))
+		`uvm_warning("TR_CHK/AXI3_LEN", $sformatf("On AXI3, AxLEN(%0d) must be 15 or less: a burst has 16 transfers at most", tr.len))
 	end
 
 	// A read request has no data beats, and the master does not use the data_delay of a read
 	if(tr.tr_type == OVIP_AXI_WRITE_TRANS && tr.data_delay.size() > tr.data_beats.size())
 	begin
 		err_flag = 1;
-		`uvm_warning("TR_CHK", $sformatf("data_delay size (%0d) is bigger than transaction length",tr.data_delay.size()))
+		`uvm_warning("TR_CHK/DATA_DELAY", $sformatf("data_delay size (%0d) is bigger than transaction length",tr.data_delay.size()))
 	end
 
 	if(tr.tr_type == OVIP_AXI_WRITE_TRANS) begin
 		err_flag |= check_write_trans_validity(tr);
 		if(cfg.interface_type == OVIP_AXI_READ_ONLY_INTERFACE) begin
 			err_flag = 1;
-			`uvm_warning("TR_CHK", "Attempt to send WRITE transaction but agent is OVIP_AXI_READ_ONLY_INTERFACE")
+			`uvm_warning("TR_CHK/INTERFACE_TYPE", "Attempt to send WRITE transaction but agent is OVIP_AXI_READ_ONLY_INTERFACE")
 		end
 	end
 	else begin
 		err_flag |= check_read_trans_validity(tr);
 		if(cfg.interface_type == OVIP_AXI_WRITE_ONLY_INTERFACE) begin
 			err_flag = 1;
-			`uvm_warning("TR_CHK", "Attempt to send READ transaction but agent is OVIP_AXI_WRITE_ONLY_INTERFACE")
+			`uvm_warning("TR_CHK/INTERFACE_TYPE", "Attempt to send READ transaction but agent is OVIP_AXI_WRITE_ONLY_INTERFACE")
 		end
 	end
 
@@ -794,10 +794,10 @@ task ovip_axi_master_driver::transaction_acceptor();
 	begin
 		@(vif.master_cb iff
 			// End of READ transaction - a new READ slot is now available!
-			(vif.master_cb.rvalid && vif.monitor_cb.rready && (vif.master_cb.rlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE))
+			(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE && vif.master_cb.rvalid && vif.monitor_cb.rready && (vif.master_cb.rlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE))
 			||
 			// End of WRITE transaction - a new WRITE slot is now available!
-			(vif.master_cb.bvalid && vif.monitor_cb.bready)
+			(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE && vif.master_cb.bvalid && vif.monitor_cb.bready)
 			||
 			// There is a pending transation
 			(req_fifo.size() || queued_trans.size())
@@ -805,8 +805,8 @@ task ovip_axi_master_driver::transaction_acceptor();
 
 
 		// Checks for finished transactions and updates the `num_outstanding_*` variables accordingly.
-		if(vif.master_cb.rvalid && vif.monitor_cb.rready && (vif.master_cb.rlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)) --num_outstanding_rd;
-		if(vif.master_cb.bvalid && vif.monitor_cb.bready) --num_outstanding_wr;
+		if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE && vif.master_cb.rvalid && vif.monitor_cb.rready && (vif.master_cb.rlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)) --num_outstanding_rd;
+		if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE && vif.master_cb.bvalid && vif.monitor_cb.bready) --num_outstanding_wr;
 
 
 		while( // There are transactions and available slots for them

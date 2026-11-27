@@ -32,7 +32,7 @@ task ovip_axi_monitor::aw_channel_signal_stability_check();
 				end
 			end
 
-			if(!vif.monitor_cb.awvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "AWVALID was de-asserted before the transfer was sampled!") break; end
+			if(!vif.monitor_cb.awvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_DEASSERTED"}, "AWVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.awready) break;
 			@(vif.monitor_cb);
 			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
@@ -65,7 +65,7 @@ task ovip_axi_monitor::w_channel_signal_stability_check();
 				if(cfg.protocol_type == OVIP_PROTOCOL_AXI3) `OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(id, WID)
 			end
 
-			if(!vif.monitor_cb.wvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "WVALID was de-asserted before the transfer was sampled!") break; end
+			if(!vif.monitor_cb.wvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_DEASSERTED"}, "WVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.wready) break;
 			@(vif.monitor_cb);
 			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
@@ -93,7 +93,7 @@ task ovip_axi_monitor::b_channel_signal_stability_check();
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(buser ,BUSER)
 			end
 
-			if(!vif.monitor_cb.bvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "BVALID was de-asserted before the transfer was sampled!") break; end
+			if(!vif.monitor_cb.bvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_DEASSERTED"}, "BVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.bready) break;
 			@(vif.monitor_cb);
 			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
@@ -134,7 +134,7 @@ task ovip_axi_monitor::ar_channel_signal_stability_check();
 				end
 			end
 
-			if(!vif.monitor_cb.arvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "ARVALID was de-asserted before the transfer was sampled!") break; end
+			if(!vif.monitor_cb.arvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_DEASSERTED"}, "ARVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.arready) break;
 			@(vif.monitor_cb);
 			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it
@@ -173,7 +173,7 @@ task ovip_axi_monitor::r_channel_signal_stability_check();
 				`OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(resp_beats[1], RRESP)
 			end
 
-			if(!vif.monitor_cb.rvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/STABILITY_CHECK"}, "RVALID was de-asserted before the transfer was sampled!") break; end
+			if(!vif.monitor_cb.rvalid) begin `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_DEASSERTED"}, "RVALID was de-asserted before the transfer was sampled!") break; end
 			if(vif.monitor_cb.rready) break;
 			@(vif.monitor_cb);
 			if(!vif.monitor_cb.aresetn) break;   // a reset ends the transfer: rst_monitor drops it

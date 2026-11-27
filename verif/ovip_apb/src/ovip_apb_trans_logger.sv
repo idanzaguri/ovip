@@ -51,7 +51,7 @@ endclass : ovip_apb_trans_logger
 function void ovip_apb_trans_logger::start_of_simulation_phase(uvm_phase phase);
 	// A factory-created trans so the header matches the actual transaction
 	// type via any agent-level type override.
-	ovip_apb_trans hdr = ovip_apb_trans::type_id::create("log_hdr");
+	ovip_apb_trans hdr = ovip_apb_trans::type_id::create("log_hdr", this);
 	string header = $sformatf("%-11s %-9s %s", "end_time", "agent", hdr.log_header());
 	super.start_of_simulation_phase(phase);
 

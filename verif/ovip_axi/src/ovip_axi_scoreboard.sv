@@ -83,8 +83,8 @@ class ovip_axi_scoreboard extends uvm_component;
 	virtual function void write_exp(ovip_axi_trans t);
 		ovip_axi_trans entry;
 		if(defensive_copy_expected) begin
-			entry = ovip_axi_trans::type_id::create("exp_cp");
-			entry.copy(t);
+			if(!$cast(entry, t.clone())) `uvm_fatal("CAST_FAILED", "ovip_axi_scoreboard::write_exp: clone failed")
+			entry.set_name("exp_cp");
 		end
 		else begin
 			entry = t;

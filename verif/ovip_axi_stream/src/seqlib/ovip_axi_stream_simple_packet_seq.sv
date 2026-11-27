@@ -41,7 +41,7 @@ class ovip_axi_stream_simple_packet_seq extends ovip_axi_stream_base_master_sequ
 	virtual task body();
 		for(int pp = 0; pp < num_packets; pp++)
 		begin
-			ovip_axi_stream_trans tr  = ovip_axi_stream_trans::type_id::create($sformatf("tr_%0d", pp));
+			ovip_axi_stream_trans tr  = ovip_axi_stream_trans::type_id::create($sformatf("tr_%0d", pp), null, get_full_name());
 			int                   len = (pp < lens.size())  ? lens[pp]  : beats_per_packet;
 			tr.id   = (pp < ids.size())   ? ids[pp]   : 0;
 			tr.dest = (pp < dests.size()) ? dests[pp] : 0;
@@ -63,8 +63,9 @@ class ovip_axi_stream_simple_packet_seq extends ovip_axi_stream_base_master_sequ
 
 			if(sb_ref != null)
 			begin
-				ovip_axi_stream_trans exp = ovip_axi_stream_trans::type_id::create($sformatf("exp_%0d", pp));
-				exp.copy(tr);
+				ovip_axi_stream_trans exp;
+				if(!$cast(exp, tr.clone())) `uvm_fatal("CAST_FAILED", "ovip_axi_stream_simple_packet_seq: clone failed")
+				exp.set_name($sformatf("exp_%0d", pp));
 				sb_ref.exp_ap.write(exp);
 			end
 			send(tr);

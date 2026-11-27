@@ -26,7 +26,7 @@ class ovip_ace_base_master_sequence extends ovip_axi_base_master_sequence;
 		ovip_axi_size_t   size = OVIP_AXI_SIZE_4B,
 		bit [7:0]         len  = 0
 	);
-		ovip_ace_trans tr = ovip_ace_trans::type_id::create("ace_rd");
+		ovip_ace_trans tr = ovip_ace_trans::type_id::create("ace_rd", null, get_full_name());
 		tr.tr_type   = OVIP_AXI_READ_TRANS;
 		tr.direction = OVIP_ACE_INITIATING;
 		tr.addr      = addr;
@@ -50,7 +50,7 @@ class ovip_ace_base_master_sequence extends ovip_axi_base_master_sequence;
 		ovip_axi_strb_t     strb_beats[$],
 		ovip_axi_size_t     size = OVIP_AXI_SIZE_4B
 	);
-		ovip_ace_trans tr = ovip_ace_trans::type_id::create("ace_wr");
+		ovip_ace_trans tr = ovip_ace_trans::type_id::create("ace_wr", null, get_full_name());
 		if(data_beats.size() == 0)
 			`uvm_error("ACE_SEQ/MAKE_WRITE", "make_write() called with no data beats; the item is built with AWLEN = 0 and no data")
 		tr.tr_type    = OVIP_AXI_WRITE_TRANS;

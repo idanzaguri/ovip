@@ -79,12 +79,64 @@ class ovip_axi_stream_agent_config extends uvm_object;
 	// with the index (even=0, odd=1), loop=1 wraps. Default = always ready.
 	ovip_axi_stream_ready_pattern_t default_tready_pattern;
 
+	// How this agent reports its checks. Filled by set_check_severity() and
+	// set_check_action() below, and applied by the agent in connect_phase.
+	ovip_check_reports check_reports;
+
 	`uvm_object_utils(ovip_axi_stream_agent_config)
 
 	function new(string name = "ovip_axi_stream_agent_config");
 		super.new(name);
 		default_tready_pattern = '{cycles:'{0, 1}, loop:0};
+		check_reports = ovip_check_reports::type_id::create("check_reports");
 	endfunction : new
+
+
+	// The check with the message ID `id` is reported by this agent with
+	// `severity` in place of UVM_WARNING or UVM_ERROR. The README lists the
+	// IDs. Give the ID without the agent tag, before the agent's connect_phase.
+	function void set_check_severity(string id, uvm_severity severity);
+		check_reports.set_severity(id, severity);
+	endfunction : set_check_severity
+
+
+	// The report of the check `id` gets the UVM action `action`.
+	// UVM_NO_ACTION prints nothing and counts nothing.
+	function void set_check_action(string id, uvm_action action);
+		check_reports.set_action(id, action);
+	endfunction : set_check_action
+
+
+	// copy() and clone() carry every field. A new field goes in here too.
+	virtual function void do_copy(uvm_object rhs);
+		ovip_axi_stream_agent_config c;
+		if(!$cast(c, rhs)) `uvm_fatal("CAST_FAILED", "ovip_axi_stream_agent_config::do_copy: rhs is not an ovip_axi_stream_agent_config")
+		super.do_copy(rhs);
+		is_active                    = c.is_active;
+		agent_type                   = c.agent_type;
+		protocol_type                = c.protocol_type;
+		agent_tag                    = c.agent_tag;
+		tdata_width                  = c.tdata_width;
+		tid_width                    = c.tid_width;
+		tdest_width                  = c.tdest_width;
+		tuser_bits_per_byte          = c.tuser_bits_per_byte;
+		tready_en                    = c.tready_en;
+		tstrb_en                     = c.tstrb_en;
+		tkeep_en                     = c.tkeep_en;
+		tlast_en                     = c.tlast_en;
+		tid_en                       = c.tid_en;
+		tdest_en                     = c.tdest_en;
+		tuser_en                     = c.tuser_en;
+		twakeup_en                   = c.twakeup_en;
+		parity_en                    = c.parity_en;
+		continuous_packets           = c.continuous_packets;
+		check_undefined_data_lanes   = c.check_undefined_data_lanes;
+		drive_reset_values_when_idle = c.drive_reset_values_when_idle;
+		num_outstanding_transactions = c.num_outstanding_transactions;
+		tr_timeout_us                = c.tr_timeout_us;
+		default_tready_pattern       = c.default_tready_pattern;
+		check_reports.copy(c.check_reports);
+	endfunction : do_copy
 
 
 	// Validates the configuration against the spec rules and the MAX caps.

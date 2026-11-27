@@ -15,16 +15,18 @@
 // slave sequence, which ovip_ace_base_slave_sequence disables (see its new()).
 
 class ovip_ace_agent extends uvm_agent;
+	`uvm_analysis_imp_decl(_snoop_log)
 
 	ovip_ace_agent_config cfg;
 
 	virtual ovip_ace_agent_if vif;
 
-	ovip_ace_monitor                                 mon;
-	ovip_axi_base_driver#(virtual ovip_ace_agent_if) drv;
-	ovip_axi_base_sequencer                          sqr;
+	ovip_ace_monitor                                           mon;
+	ovip_axi_base_driver#(virtual ovip_ace_agent_if)           drv;
+	ovip_axi_base_sequencer                                    sqr;
 
-	ovip_axi_trans_logger                            trans_logger; // when cfg.enable_trans_log
+	ovip_axi_trans_logger                                      trans_logger;  // when cfg.enable_trans_log
+	uvm_analysis_imp_snoop_log #(ovip_ace_trans, ovip_ace_agent) snoop_log_imp;
 
 	`uvm_component_utils(ovip_ace_agent)
 
@@ -34,6 +36,7 @@ class ovip_ace_agent extends uvm_agent;
 
 	extern virtual function void build_phase(uvm_phase phase);
 	extern virtual function void connect_phase(uvm_phase phase);
+	extern virtual function void write_snoop_log(ovip_ace_trans t);
 
 endclass : ovip_ace_agent
 
@@ -50,10 +53,6 @@ function void ovip_ace_agent::build_phase(uvm_phase phase);
 
 	super.build_phase(phase);
 
-	// Every transaction the VIP creates internally (monitor slave-response
-	// requests, scoreboard copies) should carry the ACE fields.
-	set_type_override_by_type(ovip_axi_trans::get_type(), ovip_ace_trans::get_type());
-
 	mon = ovip_ace_monitor::type_id::create("mon", this);
 	mon.cfg = cfg;
 
@@ -65,6 +64,8 @@ function void ovip_ace_agent::build_phase(uvm_phase phase);
 		trans_logger.file_name          = (cfg.trans_log_file != "") ? cfg.trans_log_file : $sformatf("%s_trans.log", base);
 		trans_logger.combined_file_name = cfg.trans_log_combined_file;
 		trans_logger.format             = cfg.trans_log_format;
+		trans_logger.header_proto       = ovip_ace_trans::type_id::create("log_hdr", this);
+		snoop_log_imp = new("snoop_log_imp", this);
 	end
 
 	if(get_is_active())
@@ -104,7 +105,10 @@ function void ovip_ace_agent::connect_phase(uvm_phase phase);
 	mon.vif = vif;
 
 	if(trans_logger != null)
+	begin
 		mon.analysis_port.connect(trans_logger.analysis_export);
+		mon.snoop_analysis_port.connect(snoop_log_imp);
+	end
 
 	if(get_is_active())
 	begin
@@ -119,6 +123,14 @@ function void ovip_ace_agent::connect_phase(uvm_phase phase);
 			slv_sqr.response_req_port.connect(mon.response_req_port);
 		end
 	end
+
+	cfg.check_reports.apply(this, cfg.agent_tag);
 endfunction : connect_phase
+
+
+function void ovip_ace_agent::write_snoop_log(ovip_ace_trans t);
+	if(trans_logger != null)
+		trans_logger.write(t);
+endfunction : write_snoop_log
 
 `endif

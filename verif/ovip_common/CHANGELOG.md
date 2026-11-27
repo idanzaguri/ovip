@@ -8,6 +8,32 @@ and this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.6.0] -- 2026-11-27
+
+### Added
+
+- `ovip_check_reports` in `ovip_global_pkg`: the settings of how one agent
+  reports its checks, by message ID. `set_severity()` and `set_action()`
+  fill it, and `apply()` sets the UVM report overrides on a component and on
+  every component under it (including `UVM_FATAL` actions when `set_severity()`
+  promotes a check to fatal). Every OVIP agent config has one, behind
+  `cfg.set_check_severity()` and `cfg.set_check_action()`.
+
+### Fixed
+
+- 64-bit address wraparound in `ovip_mem` and `ovip_mem_space`:
+  `ovip_mem::is_valid()` and `ovip_mem_space::covers()` return 0 when
+  `[addr, addr + size)` wraps past 2^64 (`size - 1 > ~addr`), instead of
+  wrapping `addr + done` / `addr + pos` back to 0; `ovip_mem::add_valid_range()`
+  refuses a range that wraps with `MEM/BAD_RANGE`; `ovip_mem_space::insert_region()`
+  refuses a region whose `sub_base` span wraps the sub-memory's address space
+  with `MEM_SPACE/BAD_REGION`; and `read_bytestream()` in both classes reports
+  a negative `size` as `MEM/BAD_ACCESS` / `MEM_SPACE/BAD_ACCESS` and reads
+  nothing.
+- `ovip_mem_space::fill_random` loops with `for (addr_t i = 0; i < size; i++)`
+  instead of `repeat (size)`, eliminating the VCS `Warning-[TLRCE]` repetition
+  count warning on 64-bit `size`.
+
 ## [0.5.1] -- 2026-11-12
 
 ### Fixed

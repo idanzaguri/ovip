@@ -25,7 +25,7 @@ end
 // for use inside ovip_axi_monitor and its subclasses (MESSAGE_TAG is its member).
 `define OVIP_AXI_MON_XZ_CHECK(signal, name)\
 	if(^(vif.monitor_cb.signal) === 1'bx)\
-		`uvm_error({MESSAGE_TAG, "AXI_MON/XZ_CHECK"}, $sformatf("Signal %s contains X's or Z's`",`"name`"))
+		`uvm_error({MESSAGE_TAG, "AXI_MON/XZ_CHECK"}, $sformatf("Signal %s contains X's or Z's",`"name`"))
 
 
 `define OVIP_AXI_MON_SIGNAL_STABILITY_CHECK(field, name)\

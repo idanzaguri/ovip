@@ -13,6 +13,7 @@ UVM verification IP for the AXI family of protocols -- **AXI3, AXI4, AXI4-Lite**
 | AXI3 W-channel interleaving | Yes (`wr_interleave_depth`) |
 | Byte-lane alignment | Auto (default) or manual. Covers narrow transfers, unaligned starts, INCR, and FIXED |
 | Mid-test reset | Drivers, monitor, and base slave sequence all recover cleanly. The master driver gives every item that the reset ended back to its sequence, with `dropped_by_reset` set |
+| Check reports | Every check has a message ID of its own. `cfg.set_check_severity()` and `cfg.set_check_action()` change how one agent reports one check, see [Check Reports](#check-reports) |
 | Functional coverage | No covergroups ship today |
 | UVM callbacks / transaction recording | Not wired up |
 
@@ -46,8 +47,9 @@ Every agent takes an `ovip_axi_agent_config` object (`cfg`). The sections
 below describe most of its fields where they apply: the signal widths under
 [Signal-Width Limits](#signal-width-limits), the alignment and randomization
 switches under [Byte-Lane Alignment](#byte-lane-alignment), then the ready
-patterns, the scheduler depths and the transaction log. Three fields select
-what the agent speaks:
+patterns, the scheduler depths and the transaction log. The methods that
+change how the agent reports a check are under
+[Check Reports](#check-reports). Three fields select what the agent speaks:
 
 | `cfg` field | Default | Meaning |
 |---|---|---|
@@ -398,11 +400,11 @@ address arrives -- so the limit reflects work that is genuinely in flight on the
 
 ## Monitor Checks
 
-Beside the X/Z check and the stability check, the monitor tests the traffic against rules of the protocol and reports a violation as a `UVM_ERROR` with an `AXI_MON/...` message ID. This section describes the checks whose rule needs more than the message says.
+Beside the X/Z check and the stability check, the monitor tests the traffic against rules of the protocol and reports a violation as a `UVM_ERROR` with an `AXI_MON/...` message ID. Every check has a message ID of its own. [Check Reports](#check-reports) lists the IDs and shows how to change the report of a check for one agent. This section describes the checks whose rule needs more than the message says.
 
 ### Reset
 
-While ARESETn is low every VALID must be low. The monitor checks it from the second clock edge of a reset, because a synchronous master or slave sees the reset on the first one. A VALID may rise only after the first rising clock edge where ARESETn is high (spec A3.1.2, Figure A3-1), so a VALID that is high on that edge is an error too. Both are `AXI_MON/BAD_VALIDATOR`. The check of the exit runs once the monitor has sampled ARESETn low, and it reports a `1` only, not an X or a Z: a bench may start with ARESETn high and the wires not driven yet. A handshake on that edge is still sampled, so the transfers after it are matched as usual.
+While ARESETn is low every VALID must be low. The monitor checks it from the second clock edge of a reset, because a synchronous master or slave sees the reset on the first one. A VALID may rise only after the first rising clock edge where ARESETn is high (spec A3.1.2, Figure A3-1), so a VALID that is high on that edge is an error too. The first is `AXI_MON/VALID_IN_RESET`, the second is `AXI_MON/VALID_AT_RESET_EXIT`. The check of the exit runs once the monitor has sampled ARESETn low, and it reports a `1` only, not an X or a Z: a bench may start with ARESETn high and the wires not driven yet. A handshake on that edge is still sampled, so the transfers after it are matched as usual.
 
 ### Responses and the handshakes they depend on
 
@@ -418,7 +420,91 @@ The default is `50`. The value is a time, not a number of clock cycles: 50 us is
 
 ### AxCACHE
 
-On an AXI4 agent an AxCACHE value that Table A4-5 of the spec does not list is reserved, and the monitor reports it as `AXI_MON/WR` (AWCACHE) or `AXI_MON/RD` (ARCACHE). The reserved values are `0b0100`, `0b0101`, `0b1000`, `0b1001`, `0b1100` and `0b1101`. The check runs when the agent has the signal (`cfg.awcache_en`, `cfg.arcache_en`). It is not made on AXI3. The request is still passed on as it is: a slave sequence does not see it as a malformed request.
+On an AXI4 agent an AxCACHE value that Table A4-5 of the spec does not list is reserved, and the monitor reports it as `AXI_MON/AXCACHE_RESERVED`, and the message names AWCACHE or ARCACHE. The reserved values are `0b0100`, `0b0101`, `0b1000`, `0b1001`, `0b1100` and `0b1101`. The check runs when the agent has the signal (`cfg.awcache_en`, `cfg.arcache_en`). It is not made on AXI3. The request is still passed on as it is: a slave sequence does not see it as a malformed request.
+
+## Check Reports
+
+A check is a rule that the VIP tests and reports as a `UVM_ERROR` or a `UVM_WARNING`. Every check has a message ID of its own, so the message ID names the check.
+
+A bench that breaks a rule on purpose changes the report of that check, for one agent, on the agent's config:
+
+```systemverilog
+// Reserved AxCACHE values are driven on purpose: print them as UVM_INFO.
+master_cfg.set_check_severity("AXI_MON/AXCACHE_RESERVED", UVM_INFO);
+// Or print nothing and count nothing.
+slave_cfg.set_check_action("AXI_MON/AXCACHE_RESERVED", UVM_NO_ACTION);
+```
+
+| `cfg` method | Meaning |
+|---|---|
+| `set_check_severity(id, severity)` | The agent reports the check `id` with `severity` (`UVM_INFO`, `UVM_WARNING`, `UVM_ERROR` or `UVM_FATAL`) in place of its default severity. |
+| `set_check_action(id, action)` | The report of the check `id` gets the UVM action `action`. `UVM_NO_ACTION` prints nothing and counts nothing. |
+
+- Give the ID as the tables below show it, without `cfg.agent_tag`. The agent adds the tag where a component uses it.
+- Call the methods before the agent's `connect_phase`, where you set the other `cfg` fields. The agent applies them in `connect_phase` to its monitor, its driver and its sequencer. A sequence reports through the sequencer it runs on, so the checks of the slave sequence are covered.
+- Only the report changes. The check still runs, and what it does beside the report stays. For example a burst across a 4K boundary still sets `tr.monitor_error`, so the base slave sequence still answers SLVERR.
+- The setting is per agent. The other agents report the check as before.
+- The methods use the UVM report overrides of the components (`set_report_severity_id_override`, `set_report_severity_id_action`). You can call these on a component yourself, for example to change a report during the run. For the monitor, give the ID with the agent tag (`M/AXI_MON/AXCACHE_RESERVED`); drivers, sequences and `ovip_axi_trans_logger` report with the plain ID (`cfg.set_check_*` sets both forms).
+- A `UVM_FATAL` is not a check: `set_check_severity()` does not change it (`set_check_action()` also sets the `UVM_FATAL` action for the ID so a check promoted to `UVM_FATAL` keeps its configured action).
+
+### Monitor checks
+
+All are `UVM_ERROR`.
+
+| Message ID | The monitor reports |
+|---|---|
+| `AXI_MON/XZ_CHECK` | An X or a Z on a signal that must have a value. |
+| `AXI_MON/STABILITY_CHECK` | A payload signal that changed while VALID waited for READY. |
+| `AXI_MON/VALID_DEASSERTED` | A VALID that fell before its READY. |
+| `AXI_MON/VALID_IN_RESET` | A VALID that is high while ARESETn is low. |
+| `AXI_MON/VALID_AT_RESET_EXIT` | A VALID that is high on the first rising clock edge after a reset. |
+| `AXI_MON/AXSIZE` | An AxSIZE that is bigger than the bus width. |
+| `AXI_MON/BOUNDARY_4K` | An INCR burst that crosses a 4K boundary. |
+| `AXI_MON/AXI3_LEN` | An AXI3 INCR burst of more than 16 transfers. |
+| `AXI_MON/FIXED_LEN` | A FIXED burst of more than 16 transfers. |
+| `AXI_MON/WRAP_ADDR` | A WRAP burst whose start address is not aligned to AxSIZE. |
+| `AXI_MON/WRAP_LEN` | A WRAP burst whose length is not 2, 4, 8 or 16 transfers. |
+| `AXI_MON/BURST_RESERVED` | The reserved AxBURST value. |
+| `AXI_MON/AXCACHE_RESERVED` | A reserved AxCACHE value on AXI4. |
+| `AXI_MON/XLAST_POSITION` | xLAST on a transfer that AxLEN does not make the last one. |
+| `AXI_MON/XLAST_MISSING` | No xLAST on the transfer that AxLEN makes the last one. |
+| `AXI_MON/AWLEN_MISMATCH` | Write data that came before its address, with a number of beats that AWLEN does not give. |
+| `AXI_MON/INVALID_WSTRB` | A strobe outside the bytes of the beat. |
+| `AXI_MON/LITE_EXOKAY` | An EXOKAY response on AXI4-Lite. |
+| `AXI_MON/BRESP` | BVALID before the AW handshake and the last W handshake of the write. |
+| `AXI_MON/RDATA` | RVALID before the AR handshake of the read. |
+| `AXI_MON/BRESP_OOO` | Write responses out of order by more than `cfg.wr_resp_out_of_order_depth`. |
+| `AXI_MON/RDATA_OOO` | Read data out of order by more than `cfg.rd_out_of_order_depth`. |
+| `AXI_MON/INTERLEAVING_EXCEED` | Write data interleaving of more than `cfg.wr_interleave_depth`. |
+| `AXI_MON/RD_INTERLEAVING_EXCEED` | Read data interleaving of more than `cfg.rd_interleave_depth`. |
+| `AXI_MON/WDATA_OOO` | AXI3: first W beats that do not follow the AW order. |
+| `AXI_MON/OUTSTANDING_EXCEED` | More outstanding transactions than a `cfg.num_outstanding_*` limit. |
+| `AXI_MON/INCOMPLETE_WR_TRANS` | A write that is not complete when the test ends. |
+| `AXI_MON/INCOMPLETE_RD_TRANS` | A read that is not complete when the test ends. |
+
+### Driver and sequence checks
+
+| Message ID | Severity | Reported by | Reports |
+|---|---|---|---|
+| `TR_CHK/WIDTH` | `UVM_WARNING` | master and slave driver | A field of the item that does not fit the configured width of its signal. |
+| `TR_CHK/DATA_BEATS` | `UVM_WARNING` | master and slave driver | Fewer `data_beats` than `len`+1. |
+| `TR_CHK/STRB_BEATS` | `UVM_WARNING` | master driver | Fewer `strb_beats` than `len`+1. |
+| `TR_CHK/AXSIZE` | `UVM_WARNING` | master driver | A `size` that is bigger than the bus width. |
+| `TR_CHK/LITE_LEN` | `UVM_WARNING` | master driver | AXI4-Lite: a `len` that is not 0. |
+| `TR_CHK/LITE_SIZE` | `UVM_WARNING` | master driver | AXI4-Lite: a `size` that is not the bus width. |
+| `TR_CHK/AXI3_LEN` | `UVM_WARNING` | master driver | AXI3: a `len` of more than 15. |
+| `TR_CHK/DATA_DELAY` | `UVM_WARNING` | master driver | More `data_delay` entries than data beats. |
+| `TR_CHK/INTERFACE_TYPE` | `UVM_WARNING` | master driver | A write on a read-only agent, or a read on a write-only agent. |
+| `OVIP_AXI/READY_PATTERN` | `UVM_WARNING` | master and slave driver | A ready pattern whose cycles sum to 0. The driver plays always-ready. |
+| `SLAVE_DRV` | `UVM_WARNING` | slave driver | A slave sequence that returned an item off the clock edge. |
+| `AXI_MASTER_DRV/BRESP` | `UVM_ERROR` | master driver | A write response with an ID that no write of the driver waits for. |
+| `AXI_MASTER_DRV/RDATA` | `UVM_ERROR` | master driver | Read data with an ID that no read of the driver waits for. |
+| `SLAVE_SEQ/OUT_OF_RANGE` | `UVM_ERROR` | base slave sequence | A request that touches an address outside the valid ranges of the memory. |
+| `OVIP_AXI/BAD_WR_RESP` | `UVM_WARNING` | base slave sequence | A write whose response is an error. The memory is not updated. |
+| `AXI_SIMPLE_SEQ/PAGE_4K` | `UVM_WARNING` | `ovip_axi_simple_rd_bursts_seq`, `ovip_axi_simple_wr_bursts_seq` | A random-address INCR burst whose byte length exceeds a 4KB page. |
+| `AXI_LOG` | `UVM_WARNING` | `ovip_axi_trans_logger` | A transaction log file that could not be opened. |
+
+The master driver still refuses an item that has a `TR_CHK/...` problem (see [Items the driver refuses](#items-the-driver-refuses)).
 
 ## Transaction Logging
 
@@ -565,7 +651,7 @@ is 0, `size` is the bus width), `len` against the 16 transfers of an AXI3
 burst, the number of `data_beats` and `strb_beats`
 of a write (`len`+1 or more) and of its `data_delay` entries (no more than
 the data beats), and the direction against `cfg.interface_type`. Each problem
-is a `TR_CHK` UVM_WARNING, and an item with a problem ends the run with
+is a `TR_CHK/...` UVM_WARNING, and an item with a problem ends the run with
 UVM_FATAL. These are the checks the driver needs to drive the item. The
 protocol checks are the monitor's.
 

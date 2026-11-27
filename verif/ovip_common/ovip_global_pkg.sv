@@ -7,6 +7,7 @@ package ovip_global_pkg;
 	`include "uvm_macros.svh"
 	typedef byte ovip_bytestream[$];
 	typedef bit ovip_bitstream[$];
+	`include "ovip_check_reports.sv"
 endpackage : ovip_global_pkg
 
 `endif

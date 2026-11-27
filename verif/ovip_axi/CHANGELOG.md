@@ -9,6 +9,105 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.7.0] -- 2026-11-27
+
+### Added -- VIP
+
+- `cfg.set_check_severity(id, severity)` and `cfg.set_check_action(id, action)`
+  change how one agent reports one check. The check is named by its message
+  ID. `UVM_INFO` prints the check as a UVM_INFO line, and the action
+  `UVM_NO_ACTION` prints nothing. The agent applies the settings in
+  `connect_phase` to its monitor, its driver and its sequencer, so the
+  checks of a sequence are covered. Only the report changes: the check still
+  runs. For a bench that breaks a rule on purpose. The README section
+  "Check Reports" lists the message IDs.
+
+### Changed -- VIP
+
+- **Breaking: message IDs.** Every check has a message ID of its own, so
+  that one check can be selected by its ID. A check that shared an ID with
+  other checks has a new ID. A log filter, a `uvm_report_catcher` or a UVM
+  report override on an old ID must change.
+  - `AXI_MON/WR` and `AXI_MON/RD` are gone. Their checks are
+    `AXI_MON/AXSIZE`, `AXI_MON/BOUNDARY_4K`, `AXI_MON/AXI3_LEN`,
+    `AXI_MON/FIXED_LEN`, `AXI_MON/WRAP_ADDR`, `AXI_MON/WRAP_LEN`,
+    `AXI_MON/BURST_RESERVED`, `AXI_MON/AXCACHE_RESERVED`,
+    `AXI_MON/XLAST_POSITION` and `AXI_MON/XLAST_MISSING`. The ID no longer
+    says the direction, so the message of these checks starts with `Write:`
+    or `Read:` (the AxCACHE message names AWCACHE or ARCACHE).
+  - The EXOKAY response on AXI4-Lite was `AXI_MON` and is
+    `AXI_MON/LITE_EXOKAY`.
+  - `AXI_MON/BAD_VALIDATOR` is gone. A VALID that is high during reset is
+    `AXI_MON/VALID_IN_RESET`, and a VALID that is high on the first rising
+    clock edge after a reset is `AXI_MON/VALID_AT_RESET_EXIT`.
+  - A VALID that falls before its READY was `AXI_MON/STABILITY_CHECK` and is
+    `AXI_MON/VALID_DEASSERTED`. `AXI_MON/STABILITY_CHECK` stays for a
+    payload signal that changes.
+  - Read data interleaving above `cfg.rd_interleave_depth` was
+    `AXI_MON/RDATA` and is `AXI_MON/RD_INTERLEAVING_EXCEED`. `AXI_MON/RDATA`
+    stays for an RVALID before the AR handshake.
+  - The driver warnings `TR_CHK` are `TR_CHK/WIDTH`, `TR_CHK/DATA_BEATS`,
+    `TR_CHK/STRB_BEATS`, `TR_CHK/AXSIZE`, `TR_CHK/LITE_LEN`,
+    `TR_CHK/LITE_SIZE`, `TR_CHK/AXI3_LEN`, `TR_CHK/DATA_DELAY` and
+    `TR_CHK/INTERFACE_TYPE`.
+  - The 4KB page warning of `ovip_axi_simple_rd_bursts_seq` and
+    `ovip_axi_simple_wr_bursts_seq` was `BAD_USE` and is
+    `AXI_SIMPLE_SEQ/PAGE_4K`; the `auto_byte_lanes_alignment` fatal of
+    `ovip_axi_simple_wr_bursts_seq` is `AXI_SIMPLE_SEQ/BAD_USE`.
+- `ovip_axi_monitor::send_rsp_req` and `ovip_axi_scoreboard::write_exp`
+  (`defensive_copy_expected`) clone incoming transactions with `clone()`
+  instead of `ovip_axi_trans::type_id::create()` + `copy()`, `ovip_axi_trans_logger`
+  takes an optional `header_proto`, and component/sequence transaction
+  creations pass their UVM context so subclasses (such as `ovip_ace_trans`) and
+  scoped instance overrides work without a global factory type override.
+
+### Fixed -- VIP
+
+- `ovip_axi_base_slave_sequence::request_in_range` rounded the start of INCR
+  and FIXED bursts down to `addr & ~(size_bytes - 1)`, refusing a legal
+  unaligned burst when the lower bytes of its first container lay outside a
+  valid range that begins inside a word. INCR now checks from `tr.addr` to the
+  same end, and FIXED checks `size_bytes - tr.addr % size_bytes` bytes from
+  `tr.addr`.
+- `ovip_axi_master_driver` gated neither its wake condition nor its
+  `--num_outstanding_rd` and `--num_outstanding_wr` decrements by
+  `cfg.interface_type`. On a shared interface with a read-only and a
+  write-only master agent, the other direction's completions decremented the
+  unused counter below zero and defeated `cfg.num_outstanding_transactions`.
+- `ovip_axi_monitor` (`sample_write_data`, `sample_read_data`,
+  `check_wr_data_phase_post_address`) and `ovip_axi_master_driver`
+  (`sample_rd_response`) indexed `transfer_starting_byte_lane[]` past `tr.len`
+  when a broken burst carried more beats than `AxLEN + 1`, which could add
+  false `AXI_MON/INVALID_WSTRB` errors on narrow extra beats.
+- Removed a stray trailing backtick from the `OVIP_AXI_MON_XZ_CHECK` message
+  string in `ovip_axi_macros.sv`.
+
+### Added -- testbench
+
+- `ovip_axi_check_reports_test`: one agent reports a check as UVM_INFO, the
+  other gives it `UVM_NO_ACTION` or leaves it, and a check that no agent
+  changed is still a UVM_ERROR of both monitors.
+- `ovip_axi_agent_config_test` checks that a clone carries the check report
+  settings.
+
+### Changed -- testbench
+
+- `ovip_axi_slave_out_of_range_test`: unaligned 4B INCR and FIXED bursts
+  starting at `0x1002` inside a valid range `[0x1001, 0x1102)` complete with
+  OKAY and read back their bytes.
+- `ovip_axi_master_item_test`: a write-only master (`num_outstanding_transactions = 1`)
+  sharing the interface with a read-only master waits for its first B
+  handshake before issuing its second AW after completed reads.
+- `ovip_axi_bad_dba_test`: narrow 4B INCR writes on an 8B bus with 2 data
+  beats while `AWLEN` is forced to 0 on the wire (address-first and
+  data-before-address) report the length errors with no false
+  `AXI_MON/INVALID_WSTRB`.
+- `ovip_mem_space_test`: 64-bit address wraparound checks on `is_valid()`,
+  `covers()`, `add_valid_range()` and `add_region()`, and negative `size`
+  refusal in `read_bytestream()`.
+- `ovip_axi_simple_bursts_seq_test`: casts the 64-bit queue index `(tr.addr -
+  base - offset) / 'h40` to `int`, avoiding Xcelium's `*W,BIGWBS` warning.
+
 ## [0.6.0] -- 2026-11-12
 
 ### Added -- VIP

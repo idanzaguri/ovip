@@ -16,7 +16,8 @@ UVM verification IP for the AMBA AXI-Stream protocols -- **AXI4-Stream** and **A
 | AXI5 parity | Not supported. The interface has no check signals, and nothing generates or checks parity. `parity_en` is read only by `check_config`, which rejects it on AXI4-Stream |
 | TREADY back-pressure | Per-receiver `default_tready_pattern` (cycles[$] + loop), preempt-able per-agent |
 | Continuous-packets profile | With `continuous_packets`, `check_config` rejects TSTRB and the monitor reports interleaved packets (`AXIS_MON/PKT_SCOPE`) and null bytes within a packet (`AXIS_MON/NULL_BYTE`) |
-| Scoreboard | `ovip_axi_stream_scoreboard` with per-TID FIFOs, `defensive_copy_expected` knob, `trans.diff()`-formatted mismatch reports |
+| Check reports | Every check has a message ID of its own. `cfg.set_check_severity()` and `cfg.set_check_action()` change how one agent reports one check, see [Check Reports](#check-reports) |
+| Scoreboard | `ovip_axi_stream_scoreboard` with per-`{TID, TDEST}` FIFOs (expected and actual may arrive in either order), `defensive_copy_expected` knob, `trans.diff()`-formatted mismatch reports |
 
 Full list of known limitations lives in [CHANGELOG.md](CHANGELOG.md); wanted-features in [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -59,7 +60,7 @@ The minimal runnable example is [`examples/ovip_axi_stream/01_loopback/`](../../
 
 ## Signal model
 
-The interface (`ovip_axi_stream_agent_if`) carries the full superset of AXI4-Stream + AXI5-Stream signals at the MAX widths above. Each agent's runtime config selects which signals are *live* -- the per-signal `*_en` flags drive the monitor's checks and the transmitter's drive logic. Unused signals stay at zero on the wire and aren't checked (an unused TREADY is not driven at all, see [TREADY patterns](#tready-patterns)). Within a live signal the monitor looks at the configured width only (`tdata_width`, `tid_width`, `tdest_width`, `tuser_bits_per_byte`), so a DUT port wired to the low bits of a wire may leave the upper bits undriven. The master driver drives the configured width only as well: a field of an item that is wider than its signal is cut to that width, and the driver reports it with an `AXIS_DRV/TR_CHK` warning.
+The interface (`ovip_axi_stream_agent_if`) carries the full superset of AXI4-Stream + AXI5-Stream signals at the MAX widths above. Each agent's runtime config selects which signals are *live* -- the per-signal `*_en` flags drive the monitor's checks and the transmitter's drive logic. Unused signals stay at zero on the wire and aren't checked (an unused TREADY is not driven at all, see [TREADY patterns](#tready-patterns)). Within a live signal the monitor looks at the configured width only (`tdata_width`, `tid_width`, `tdest_width`, `tuser_bits_per_byte`), so a DUT port wired to the low bits of a wire may leave the upper bits undriven. The master driver drives the configured width only as well: a field of an item that is wider than its signal is cut to that width, and the driver reports it with an `AXIS_DRV/TR_CHK` warning. Note that `drive_reset_values_when_idle`, `num_outstanding_transactions` and `tr_timeout_us` in `ovip_axi_stream_agent_config` have no effect in this version (kept for compatibility with 0.3.0; see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Three clocking blocks:
 
@@ -153,9 +154,62 @@ A test that calls `stop_sequences()` on the transmitter's sequencer at a reset m
 
 Call `put_tready_pattern` from a thread that is synchronized to the interface clocking block (`@(vif.slave_cb)` or `@(vif.monitor_cb)`). From a thread that waits on the raw clock edge (`@(posedge aclk)`), or that calls between two clock edges, the first element of the new pattern is one cycle short while the receiver holds the last level of a one-shot pattern. The default pattern is one-shot: with it, `'{6, 1}` gives 5 LOW cycles.
 
+## Check Reports
+
+A check is a rule that the VIP tests and reports as a `UVM_ERROR` or a `UVM_WARNING`. Every check has a message ID of its own, so the message ID names the check.
+
+A bench that breaks a rule on purpose changes the report of that check, for one agent, on the agent's config:
+
+```systemverilog
+// TVALID is high right after reset on purpose: print the error as UVM_INFO.
+tx_cfg.set_check_severity("AXIS_MON/VALID_AT_RESET_EXIT", UVM_INFO);
+// Or print nothing and count nothing.
+rx_cfg.set_check_action("AXIS_MON/VALID_AT_RESET_EXIT", UVM_NO_ACTION);
+```
+
+| `cfg` method | Meaning |
+|---|---|
+| `set_check_severity(id, severity)` | The agent reports the check `id` with `severity` (`UVM_INFO`, `UVM_WARNING`, `UVM_ERROR` or `UVM_FATAL`) in place of its default severity. |
+| `set_check_action(id, action)` | The report of the check `id` gets the UVM action `action`. `UVM_NO_ACTION` prints nothing and counts nothing. |
+
+- Give the ID as the tables below show it, without `cfg.agent_tag`. The agent adds the tag where a component uses it.
+- Call the methods before the agent's `connect_phase`, where you set the other `cfg` fields. The agent applies them in `connect_phase` to its monitor, its driver and its sequencer. A sequence reports through the sequencer it runs on, so the checks of a sequence are covered.
+- Only the report changes. The check still runs, and what it does beside the report stays.
+- The setting is per agent. The other agents report the check as before.
+- The methods use the UVM report overrides of the components (`set_report_severity_id_override`, `set_report_severity_id_action`). You can call these on a component yourself, for example to change a report during the run. Then give the full ID, with the agent tag: `TX/AXIS_MON/VALID_AT_RESET_EXIT`.
+- A `UVM_FATAL` is not a check: `set_check_severity()` does not change it (`set_check_action()` also sets the `UVM_FATAL` action for the ID so a check promoted to `UVM_FATAL` keeps its configured action).
+- `AXIS_TRANS/GET_DATA_BYTES` (`UVM_WARNING` from `ovip_axi_stream_trans::get_data_bytes` when `bus_width == 0`) is reported from a `uvm_object`, not from an agent component, so `cfg.set_check_*` does not change it.
+
+### Monitor checks
+
+All are `UVM_ERROR`.
+
+| Message ID | The monitor reports |
+|---|---|
+| `AXIS_MON/XZ_CHECK` | An X or a Z on a signal that must have a value while TVALID is high. |
+| `AXIS_MON/STABILITY` | A payload signal that changed while TVALID waited for TREADY. |
+| `AXIS_MON/VALID_DEASSERTED` | A TVALID that fell before TREADY. |
+| `AXIS_MON/VALID_IN_RESET` | A TVALID that is high while ARESETn is low. |
+| `AXIS_MON/VALID_AT_RESET_EXIT` | A TVALID that is high on the first clock edge where ARESETn is high after a reset. |
+| `AXIS_MON/WAKEUP` | A TWAKEUP that fell before TREADY, after it rose with TVALID. |
+| `AXIS_MON/BYTE_QUAL` | A byte with the reserved combination TKEEP 0 and TSTRB 1. |
+| `AXIS_MON/NULL_BYTE` | With `continuous_packets`: a null byte where the spec does not permit one. |
+| `AXIS_MON/PKT_SCOPE` | With `continuous_packets`: a TID or a TDEST that changed inside a packet. |
+
+### Driver checks
+
+All are `UVM_WARNING`.
+
+| Message ID | Reported by | Reports |
+|---|---|---|
+| `AXIS_DRV/TR_CHK` | master driver | A field of the item that does not fit the configured width of its signal. |
+| `AXIS_DRV/EMPTY_ITEM` | master driver | An item with no beats. The driver ignores it. |
+| `AXIS_DRV/TREADY_PATTERN` | slave driver | A TREADY pattern whose cycles sum to 0. The driver plays always-ready. |
+| `AXIS_DRV/TREADY_PATTERN_UNUSED` | slave driver | `put_tready_pattern` on an agent with `tready_en` 0. |
+
 ## Reading further
 
-This README covers the surface most users hit day-to-day. For the edge cases -- every spec-rule monitor check in `src/ovip_axi_stream_monitor.sv`, the transmitter's per-beat lane handling in `src/ovip_axi_stream_master_driver.sv`, the scoreboard's per-TID FIFO policy in `src/ovip_axi_stream_scoreboard.sv` -- **the code is the authoritative reference**. Every source file opens with a short header explaining what it does and where to look next. If you hit something the README should spell out and doesn't, an issue or PR is welcome.
+This README covers the surface most users hit day-to-day. For the edge cases -- every spec-rule monitor check in `src/ovip_axi_stream_monitor.sv`, the transmitter's per-beat lane handling in `src/ovip_axi_stream_master_driver.sv`, the scoreboard's per-stream (`{TID, TDEST}`) FIFO policy in `src/ovip_axi_stream_scoreboard.sv` -- **the code is the authoritative reference**. Every source file opens with a short header explaining what it does and where to look next. If you hit something the README should spell out and doesn't, an issue or PR is welcome.
 
 ## License
 

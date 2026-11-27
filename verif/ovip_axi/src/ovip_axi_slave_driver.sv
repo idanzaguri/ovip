@@ -379,23 +379,23 @@ endtask : rdata_phase_driver
 //
 function bit ovip_axi_slave_driver::check_write_trans_validity(ovip_axi_trans tr);
 	bit err_flag = 0;
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "ID",    tr.id,    cfg.wr_id_width, err_flag)
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "BUSER", tr.buser, cfg.buser_width, err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "ID",    tr.id,    cfg.wr_id_width, err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "BUSER", tr.buser, cfg.buser_width, err_flag)
 	return err_flag;
 endfunction
 
 function bit ovip_axi_slave_driver::check_read_trans_validity(ovip_axi_trans tr);
 	bit err_flag = 0;
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "ID",    tr.id,    cfg.rd_id_width, err_flag)
-	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", "RUSER", tr.ruser, cfg.ruser_width, err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "ID",    tr.id,    cfg.rd_id_width, err_flag)
+	`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", "RUSER", tr.ruser, cfg.ruser_width, err_flag)
 	if(tr.len+1 > tr.data_beats.size())
 	begin
 		err_flag = 1;
-		`uvm_warning("TR_CHK", $sformatf("Number of data beats(%0d) smaller than burst length (%0d)", tr.data_beats.size(), tr.len+1))
+		`uvm_warning("TR_CHK/DATA_BEATS", $sformatf("Number of data beats(%0d) smaller than burst length (%0d)", tr.data_beats.size(), tr.len+1))
 	end
 
 	foreach(tr.data_beats[ii])
-		`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK", $sformatf("data_beats[%0d]",ii), tr.data_beats[ii], cfg.bus_width*8, err_flag)
+		`OVIP_CHECK_VALUE_VS_SIGNAL_WIDTH("TR_CHK/WIDTH", $sformatf("data_beats[%0d]",ii), tr.data_beats[ii], cfg.bus_width*8, err_flag)
 
 	return err_flag;
 endfunction

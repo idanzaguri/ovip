@@ -108,6 +108,8 @@ function void ovip_apb_agent::connect_phase(uvm_phase phase);
 			slave_sqr.response_req_port.connect(mon.response_req_port);
 		end
 	end
+
+	cfg.check_reports.apply(this, cfg.agent_tag);
 endfunction : connect_phase
 
 `endif

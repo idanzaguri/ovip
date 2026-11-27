@@ -16,7 +16,7 @@
 //
 // The driver takes one item per request the monitor forwards, on the same
 // clock edge, also when the requester breaks the operating states of spec
-// section 4.1 (the monitor reports that as APB_MON/FSM). It reads PSEL and
+// section 4.1 (the monitor reports that as APB_MON/FSM_...). It reads PSEL and
 // PENABLE on every cycle of the response with the monitor's own tests. A
 // cycle that is not ACCESS before the completion ends the response there,
 // and when that cycle is a SETUP cycle the driver takes the item of the new
@@ -104,14 +104,18 @@ endfunction : drive_reset_values
 
 
 task ovip_apb_slave_driver::response_driver();
+	// The thread starts on the first clock edge with PRESETn HIGH. A SETUP
+	// cycle on that edge is taken like one on any later edge.
+	bit on_start_edge = 1;
 	at_setup = 0;
 	forever
 	begin
 		// SETUP cycle sampled, by the monitor's own test of it. The monitor
 		// pushed the request to the slave sequence at this same edge; the
 		// sequence answers in zero time.
-		if(!at_setup)
+		if(!at_setup && !(on_start_edge && vif.slave_cb.presetn === 1'b1 && vif.slave_cb.psel === 1'b1 && vif.slave_cb.penable !== 1'b1))
 			@(vif.slave_cb iff (vif.slave_cb.presetn === 1'b1 && vif.slave_cb.psel === 1'b1 && vif.slave_cb.penable !== 1'b1));
+		on_start_edge = 0;
 		at_setup = 0;
 
 		seq_item_port.get_next_item(req);
@@ -125,7 +129,7 @@ task ovip_apb_slave_driver::response_driver();
 		`ifndef VERILATOR
 		if(!vif.slave_cb.triggered)
 		begin
-			`uvm_warning({MESSAGE_TAG, "APB_SLAVE_DRV"}, "Slave sequence returned an item off the clocking-block edge; response timing shifts by the cycles consumed.")
+			`uvm_warning({MESSAGE_TAG, "APB_SLAVE_DRV/OFF_EDGE"}, "Slave sequence returned an item off the clocking-block edge; response timing shifts by the cycles consumed.")
 		end
 		`endif
 		`endif

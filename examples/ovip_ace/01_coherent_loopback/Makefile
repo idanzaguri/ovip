@@ -59,7 +59,7 @@ endif
 # ----------------------------------------------------------------------------
 clean:
 	rm -rf work transcript csrc simv simv.daidir ucli.key \
-	       xcelium.d xrun.log xrun.history \
-	       *.wlf *.vpd *.vcd vc_hdrs.h
+	       xcelium.d xrun.log xrun.history obj_dir \
+	       *.wlf *.vpd *.vcd vc_hdrs.h tr_db.log *_trans.log
 
 .PHONY: run clean view

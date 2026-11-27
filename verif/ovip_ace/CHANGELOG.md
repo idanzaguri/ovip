@@ -9,6 +9,140 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.3.0] -- 2026-11-27
+
+### Added -- VIP
+
+- `cfg.set_check_severity(id, severity)` and `cfg.set_check_action(id, action)`
+  change how one agent reports one check. The check is named by its message
+  ID. `UVM_INFO` prints the check as a UVM_INFO line, and the action
+  `UVM_NO_ACTION` prints nothing. The agent applies the settings in
+  `connect_phase` to its monitor, its driver and its sequencer, so the
+  checks of a sequence are covered. Only the report changes: the check still
+  runs. For a bench that breaks a rule on purpose. The README section
+  "Check Reports" lists the message IDs.
+- `ACE_MON/INCOMPLETE_SNOOP`: `ovip_ace_monitor::report_phase` reports a snoop
+  that had its AC handshake and did not finish before the test ended.
+- X/Z and signal-stability coverage of the ACE signals in `ovip_ace_monitor`:
+  `AXI_MON/XZ_CHECK` checks ARDOMAIN, ARSNOOP, ARBAR, AWDOMAIN, AWSNOOP,
+  AWBAR, AWUNIQUE (ACE profile) and the AC, CR and CD payloads at their
+  handshakes, and `AXI_MON/STABILITY_CHECK` checks ARDOMAIN, ARSNOOP, ARBAR,
+  AWDOMAIN, AWSNOOP, AWBAR, AWUNIQUE (ACE profile) and RRESP[3:2] (ACE
+  profile) while VALID waits for READY.
+
+### Changed -- VIP
+
+- **Breaking: message IDs.** Every check has a message ID of its own, so
+  that one check can be selected by its ID. A check that shared an ID with
+  other checks has a new ID. A log filter, a `uvm_report_catcher` or a UVM
+  report override on an old ID must change.
+  - The errors `ACE_MON/RD`, `ACE_MON/WR` and `ACE_MON/SNOOP` are gone. The
+    checks are `ACE_MON/ARSNOOP_RESERVED`, `ACE_MON/AWSNOOP_RESERVED`,
+    `ACE_MON/ACSNOOP_RESERVED`, `ACE_MON/AXDOMAIN`,
+    `ACE_MON/CACHE_LINE_BURST`, `ACE_MON/CACHE_LINE_SIZE`,
+    `ACE_MON/CACHE_LINE_ADDR`, `ACE_MON/ACE_LITE_TRANS`, `ACE_MON/AWUNIQUE`,
+    `ACE_MON/WRITE_EVICT_UNSUPPORTED`, `ACE_MON/CRRESP_DVM_DATA`,
+    `ACE_MON/CRRESP_PASS_DIRTY` and `ACE_MON/CD_BEATS`. The UVM_INFO line
+    `ACE_MON/SNOOP` of a monitored snoop stays.
+  - A VALID of a snoop channel that falls before its READY was
+    `ACE_MON/AC_STABILITY`, `ACE_MON/CR_STABILITY` or `ACE_MON/CD_STABILITY`
+    and is `ACE_MON/AC_VALID_DEASSERTED`, `ACE_MON/CR_VALID_DEASSERTED` or
+    `ACE_MON/CD_VALID_DEASSERTED`. The `_STABILITY` IDs stay for a payload
+    signal that changes.
+  - A completed transaction with no RACK or WACK at the end of the test was
+    `ACE_MON/RACK` or `ACE_MON/WACK` and is `ACE_MON/RACK_MISSING` or
+    `ACE_MON/WACK_MISSING`. `ACE_MON/RACK` and `ACE_MON/WACK` stay for an
+    acknowledge that no transaction waits for.
+  - The `AXI_MON/...` and `TR_CHK/...` IDs of the `ovip_axi` checks that an
+    ACE agent runs changed too. See the `ovip_axi` changelog.
+- `ovip_ace_master_driver` and `ovip_ace_slave_driver` read the snoop inputs
+  from their own clocking blocks (`master_cb` and `slave_cb`) instead of
+  `monitor_cb`, and mask `acaddr` and `cddata` with `ACADDR_MASK` and
+  `CDDATA_MASK`.
+- `` `uvm_analysis_imp_decl(_snoop) `` is declared inside `ovip_ace_scoreboard`
+  instead of at package scope, matching the other OVIP scoreboards.
+- `ovip_ace_agent` no longer sets a global UVM factory type override from
+  `ovip_axi_trans` to `ovip_ace_trans`: `ovip_ace_monitor` creates
+  `ovip_ace_trans` directly, slave-request handoff and scoreboard copies use
+  `clone()`, and `ovip_ace_agent` sets `trans_logger.header_proto`. Plain
+  `ovip_axi` agents in the same test keep `ovip_axi_trans`, user overrides on
+  `ovip_axi_trans` are preserved, and multiple ACE agents no longer print
+  `[TPREGR]`. A plain `ovip_axi` master sequence run on an ACE agent now sends
+  base `ovip_axi_trans` items, for which `ovip_ace_master_driver` drives zero
+  on the ACE AR/AW signals (also when `drive_reset_values_when_idle` is 0).
+- README and CONTRIBUTING: documented `uvm_comparer::check_type` when
+  comparing a base `ovip_axi_trans` against an `ovip_ace_trans`, updated the
+  verification banner and task list for the new test suite, and added
+  CDREADY-before-CR on the slave driver plus the AxBAR and multi-beat
+  `RRESP[3:2]` rules to CONTRIBUTING.
+
+### Fixed -- VIP
+
+- `cfg.enable_trans_log` on an `ovip_ace_agent` never wrote snoop transactions
+  to the log file: snoops go to `mon.snoop_analysis_port`, and only
+  `mon.analysis_port` was connected to `trans_logger`. The agent forwards
+  `snoop_analysis_port` to `trans_logger.write()` now, so snoop transactions
+  appear with the `SN` rows of `ovip_ace_trans::log_line()`.
+- `ovip_ace_monitor`: CD beats sent with `CRRESP.DataTransfer` 0 (before, with
+  or after CR) passed with no error, and `ACE_MON/CD_BEATS` did not set
+  `tr.monitor_error = 1`. `check_snoop()` requires 0 CD beats when
+  `DataTransfer` is 0 and sets `tr.monitor_error = 1` on `ACE_MON/CD_BEATS`,
+  and `snoop_channel_monitor` reports CD beats transferred while no snoop is
+  open.
+- `ovip_ace_monitor::check_ace_read_address` checked `ARDOMAIN` on the six
+  coherent reads only. It also checks the Table D3-7 domain rules of
+  CleanShared, CleanInvalid and MakeInvalid (not System) and of DVMComplete
+  and DVMMessage (Inner or Outer Shareable) now.
+- `ovip_ace_monitor` checked all 4 bits of `RRESP` for X/Z in
+  `OVIP_ACE_PROFILE_ACE_LITE`. ACE-Lite has no `RRESP[3:2]` bits (D11.1), so an
+  ACE-Lite DUT that left `rresp[3:2]` undriven got `AXI_MON/XZ_CHECK` on every
+  read beat. Only `RRESP[1:0]` is checked in ACE-Lite now.
+- `ACE_MON/AC_STABILITY`, `ACE_MON/CR_STABILITY` and `ACE_MON/CD_STABILITY`
+  reported on every remaining wait cycle after one payload change. Each reports
+  at most once per transfer now.
+- A spurious R or B handshake with no open transaction incremented `owed_rack`
+  or `owed_wack` in `ovip_ace_monitor`. Only real completed transactions are
+  counted now.
+- `ovip_ace_trans::init_state_variables()` clears `is_shared` and `pass_dirty`
+  when an item is re-initialized by the master driver.
+
+### Added -- testbench
+
+- `ovip_ace_smoke_test`: coherent writes and reads, per-beat `RRESP[1:0]` with
+  `RRESP[3:2]`, `ovip_ace_scoreboard` (initiating and snoop ports), and `SN`
+  rows in the transaction log.
+- `ovip_ace_snoop_handshake_test`: active snoop handshakes (`push_snoop` to
+  `snoop_phase_driver`) with and without CD data, narrower `acaddr_width` and
+  `cddata_width` masking, and `ACE_MASTER_DRV/SNOOP` on an empty
+  `snoop_data_beats` override.
+- `ovip_ace_snoop_checks_test`: CD before, with and after CR (D3.9), plus
+  `ACE_MON/ACSNOOP_RESERVED`, `ACE_MON/CRRESP_DVM_DATA`,
+  `ACE_MON/CRRESP_PASS_DIRTY`, `ACE_MON/CD_BEATS`, orphan CD beats, and
+  `ACE_MON/INCOMPLETE_SNOOP`.
+- `ovip_ace_rack_wack_test`: back-to-back `RACK`/`WACK`, spurious responses
+  not incrementing `owed_rack`/`owed_wack`, same-cycle and unowed pulses, and
+  `ACE_MON/RACK_MISSING` / `ACE_MON/WACK_MISSING`.
+- `ovip_ace_read_checks_test` and `ovip_ace_write_checks_test`: Table D3-7,
+  D3-8, D3-9, D3-10 and D2.1.2 address, domain, cache-line and `AWUNIQUE`
+  checks (including legal WRAP cache-line reads and Non-shareable
+  WriteClean/WriteBack), plus `ACE_SEQ/MAKE_WRITE`.
+- `ovip_ace_lite_test`: ACE-Lite subset, `RACK`/`WACK` left LOW, `RRESP[3:2]`
+  X ignored in ACE-Lite, `ACE_MON/ACE_LITE_TRANS`, and `ACE_SLAVE_DRV/SNOOP`.
+- `ovip_ace_xz_stability_test`: X/Z and stability checks on ACE AR/AW/R and
+  AC/CR/CD signals, and `ACE_MON/*_VALID_DEASSERTED` vs single-shot
+  `ACE_MON/*_STABILITY`.
+- `ovip_ace_mid_test_reset_test`: reset during an active snoop and an
+  in-flight coherent read (`dropped_by_reset`), queued snoop flush on reset,
+  and post-reset recovery.
+- `ovip_ace_rand_compare_test`: `ovip_ace_trans` randomization constraints,
+  `clone()`, `compare()`, `diff()` and `init_state_variables()`.
+- `ovip_ace_mixed_axi_test`: `ovip_ace_agent` alongside a plain
+  `ovip_axi_agent` without global factory overrides or `[TPREGR]`, and a plain
+  `ovip_axi` sequence run on an ACE master.
+- `ovip_ace_check_reports_config_test`: `set_check_severity()` and
+  `set_check_action()` on ACE and inherited AXI IDs (including promotion to
+  `UVM_FATAL`), plus `ovip_ace_agent_config` `clone()` and `check_config()`.
+
 ## [0.2.0] -- 2026-11-12
 
 ### Changed

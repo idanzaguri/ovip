@@ -40,7 +40,7 @@ class ovip_apb_simple_rw_seq extends ovip_apb_base_master_sequence;
 
 		for(int ii = 0; ii < num_transfers; ii++)
 		begin
-			ovip_apb_trans tr = ovip_apb_trans::type_id::create($sformatf("wr_%0d", ii));
+			ovip_apb_trans tr = ovip_apb_trans::type_id::create($sformatf("wr_%0d", ii), null, get_full_name());
 			ovip_apb_addr_t addr = base_addr + (($urandom_range(slots-1, 0)) * data_width);
 			tr.addr  = addr;
 			tr.write = 1;
@@ -50,7 +50,7 @@ class ovip_apb_simple_rw_seq extends ovip_apb_base_master_sequence;
 			tr.delay_until_next_trans = max_gap ? $urandom_range(max_gap, 0) : 0;
 			send(tr);
 			if(tr.slverr)
-				`uvm_error("APB_RW_SEQ", $sformatf("unexpected SLVERR on write to 0x%0h", addr))
+				`uvm_error("APB_RW_SEQ/SLVERR", $sformatf("unexpected SLVERR on write to 0x%0h", addr))
 			if(!written.exists(addr)) addrs.push_back(addr);
 			written[addr] = tr.wdata; // last write wins on address reuse
 		end
@@ -61,9 +61,9 @@ class ovip_apb_simple_rw_seq extends ovip_apb_base_master_sequence;
 			bit slverr;
 			apb_read(addrs[ii], rdata, slverr);
 			if(slverr)
-				`uvm_error("APB_RW_SEQ", $sformatf("unexpected SLVERR on read from 0x%0h", addrs[ii]))
+				`uvm_error("APB_RW_SEQ/SLVERR", $sformatf("unexpected SLVERR on read from 0x%0h", addrs[ii]))
 			else if(rdata !== written[addrs[ii]])
-				`uvm_error("APB_RW_SEQ", $sformatf("read-back mismatch at 0x%0h: wrote 0x%0h, read 0x%0h",
+				`uvm_error("APB_RW_SEQ/MISMATCH", $sformatf("read-back mismatch at 0x%0h: wrote 0x%0h, read 0x%0h",
 					addrs[ii], written[addrs[ii]], rdata))
 		end
 	endtask

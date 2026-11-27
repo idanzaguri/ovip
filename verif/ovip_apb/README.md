@@ -25,6 +25,7 @@ want to add them.
 | Completer model | Reactive memory-backed base slave sequence (`ovip_mem`), or override the hooks for a register model |
 | Scoreboard | `ovip_apb_scoreboard`, in-order, `trans.diff()`-formatted mismatch reports |
 | Transaction logging | Per-agent + combined-file text log via `cfg.enable_trans_log` |
+| Check reports | Every check has a message ID of its own. `cfg.set_check_severity()` and `cfg.set_check_action()` change how one agent reports one check, see [Check Reports](#check-reports) |
 | Idle values | 0 on every idle cycle (`cfg.drive_reset_values_when_idle`, on by default), the last value, or random payload on a requester (`cfg.randomize_idle_payload`) |
 
 Full list of known limitations lives in [CHANGELOG.md](CHANGELOG.md);
@@ -117,7 +118,10 @@ itself, because the item does not know the cfg: `addr` inside `addr_width`
 bits and aligned to the data bus width, and on an 8-bit or 16-bit bus `wdata`
 and `strb` inside the `data_width` bytes. The item keeps `strb` at 0 on a
 read by itself. The master driver warns about a field that is too wide and
-masks it, and the base slave sequence warns about an unaligned address.
+masks it, and the base slave sequence warns about an unaligned address
+(`APB_SLAVE_SEQ/UNALIGNED_PADDR`). A bench that drives an unaligned address
+on purpose changes the report of that warning, see
+[Check Reports](#check-reports).
 
 ```systemverilog
 // addr_width = 16, data_width = 4
@@ -146,6 +150,59 @@ sequence starts. A subclass with a `body()` of its own calls
 A memory with valid ranges (`mem.add_valid_range`) makes the completer answer PSLVERR outside them (OKAY on an agent with `pslverr_en = 0`), memory untouched, reported as `SLAVE_SEQ/OUT_OF_RANGE` unless `report_out_of_range` is cleared. Override `get_slverr(req)` / `get_num_wait_states(req)` /
 `populate_data_from_mem(req)` / `write_transaction_to_mem(req)` for error
 injection, directed wait states, or a register-model completer.
+
+## Check Reports
+
+A check is a rule that the VIP tests and reports as a `UVM_ERROR` or a `UVM_WARNING`. Every check has a message ID of its own, so the message ID names the check.
+
+A bench that breaks a rule on purpose changes the report of that check, for one agent, on the agent's config:
+
+```systemverilog
+// The bench drives an unaligned PADDR on purpose: print the warning as UVM_INFO.
+comp_cfg.set_check_severity("APB_SLAVE_SEQ/UNALIGNED_PADDR", UVM_INFO);
+// Or print nothing and count nothing.
+comp_cfg.set_check_action("APB_SLAVE_SEQ/UNALIGNED_PADDR", UVM_NO_ACTION);
+```
+
+| `cfg` method | Meaning |
+|---|---|
+| `set_check_severity(id, severity)` | The agent reports the check `id` with `severity` (`UVM_INFO`, `UVM_WARNING`, `UVM_ERROR` or `UVM_FATAL`) in place of its default severity. |
+| `set_check_action(id, action)` | The report of the check `id` gets the UVM action `action`. `UVM_NO_ACTION` prints nothing and counts nothing. |
+
+- Give the ID as the tables below show it, without `cfg.agent_tag`. The agent adds the tag where a component uses it.
+- Call the methods before the agent's `connect_phase`, where you set the other `cfg` fields. The agent applies them in `connect_phase` to its monitor, its driver and its sequencer. A sequence reports through the sequencer it runs on, so the checks of a sequence are covered.
+- Only the report changes. The check still runs, and what it does beside the report stays.
+- The setting is per agent. The other agents report the check as before.
+- The methods use the UVM report overrides of the components (`set_report_severity_id_override`, `set_report_severity_id_action`). You can call these on a component yourself, for example to change a report during the run. Then give the full ID, with the agent tag: `REQ/APB_MON/READ_STRB`.
+- A `UVM_FATAL` is not a check: `set_check_severity()` does not change it (`set_check_action()` also sets the `UVM_FATAL` action for the ID so a check promoted to `UVM_FATAL` keeps its configured action).
+
+### Monitor checks
+
+All are `UVM_ERROR`.
+
+| Message ID | The monitor reports |
+|---|---|
+| `APB_MON/XZ_CHECK` | An X or a Z on a signal that must have a value. |
+| `APB_MON/STABILITY` | PADDR, PWRITE, PPROT, PWDATA or PSTRB that changed during the transfer. |
+| `APB_MON/READ_STRB` | A PSTRB bit that is high during a read transfer. |
+| `APB_MON/FSM_ACCESS_NO_SETUP` | PSEL and PENABLE high with no SETUP cycle before. |
+| `APB_MON/FSM_SETUP_ABORTED` | PSEL low on the cycle after SETUP. |
+| `APB_MON/FSM_SETUP_LENGTH` | PENABLE low on the cycle after SETUP. |
+| `APB_MON/FSM_ACCESS_ABORTED` | PSEL or PENABLE low while PREADY is low. |
+| `APB_MON/FSM_PENABLE_HELD` | PENABLE still high on the cycle after the transfer. |
+
+### Driver and sequence checks
+
+| Message ID | Severity | Reported by | Reports |
+|---|---|---|---|
+| `APB_DRV/TR_CHK/WIDTH` | `UVM_WARNING` | master driver | A field of the item that does not fit the configured width of its signal. |
+| `APB_DRV/TR_CHK/READ_STRB` | `UVM_WARNING` | master driver | A read item with `strb` not 0. PSTRB is driven low. |
+| `APB_SLAVE_DRV/OFF_EDGE` | `UVM_WARNING` | slave driver | A slave sequence that returned an item off the clock edge. |
+| `APB_SLAVE_SEQ/UNALIGNED_PADDR` | `UVM_WARNING` | base slave sequence | A PADDR that is not aligned to the data bus width. The sequence aligns it down. |
+| `SLAVE_SEQ/OUT_OF_RANGE` | `UVM_ERROR` | base slave sequence | A request that touches an address outside the valid ranges of the memory. |
+| `APB_RW_SEQ/SLVERR` | `UVM_ERROR` | `ovip_apb_simple_rw_seq` | A SLVERR on a write or a read of the sequence. |
+| `APB_RW_SEQ/MISMATCH` | `UVM_ERROR` | `ovip_apb_simple_rw_seq` | Read data that differs from the data the sequence wrote. |
+| `APB_LOG` | `UVM_WARNING` | `ovip_apb_trans_logger` | A transaction log file that could not be opened. |
 
 ## Compile-Time Defines
 

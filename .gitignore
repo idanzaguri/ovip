@@ -17,6 +17,10 @@ __pycache__/
 sim/
 regression/
 tr_db.log
+*_trans.log
+
+# Verilator
+obj_dir/
 
 # Modelsim / Questa
 work/

@@ -172,10 +172,19 @@ endfunction : read_aligned
 
 function ovip_bytestream ovip_mem::read_bytestream(addr_t addr, int size = WORD_SIZE);
 	ovip_bytestream rd_data;
-	int byte_offset = addr % WORD_SIZE;
-	int num_full_words = int'($ceil( (size + byte_offset) / real'(WORD_SIZE) ));
+	int byte_offset;
+	int num_full_words;
 	int produced = 0;
+	if (size < 0)
+	begin
+		`uvm_error("MEM/BAD_ACCESS", $sformatf("%s: read at 0x%0h: negative size %0d; nothing done",
+			get_name(), addr, size))
+		return rd_data;
+	end
 	if (refuse_if_invalid(addr, size, "read")) return rd_data;
+	if (size == 0) return rd_data;
+	byte_offset = addr % WORD_SIZE;
+	num_full_words = int'($ceil( (size + byte_offset) / real'(WORD_SIZE) ));
 	addr -= byte_offset; // word-align
 
 	for (int i = 0; i < num_full_words; i++)
@@ -297,6 +306,11 @@ function void ovip_mem::add_valid_range(addr_t base, addr_t size);
 		`uvm_error("MEM/BAD_RANGE", $sformatf("%s: a valid range of size 0 at 0x%0h", get_name(), base))
 		return;
 	end
+	if (size - 1 > ~base)
+	begin
+		`uvm_error("MEM/BAD_RANGE", $sformatf("%s: a valid range of 0x%0h bytes at 0x%0h wraps the address space", get_name(), size, base))
+		return;
+	end
 	r.base = base; r.size = size;
 	foreach (valid_ranges[i])
 		if (valid_ranges[i].base > base)
@@ -315,6 +329,8 @@ endfunction : num_valid_ranges
 
 function bit ovip_mem::is_valid(addr_t addr, addr_t size = 1);
 	addr_t done = 0;   // bytes of [addr, addr + size) found valid so far
+	if (size == 0) return 1;
+	if (size - 1 > ~addr) return 0;
 	if (valid_ranges.size() == 0) return 1;
 	while (done < size)
 	begin

@@ -67,6 +67,13 @@ class ovip_ace_trans extends ovip_axi_trans;
 	endfunction : new
 
 
+	virtual function void init_state_variables();
+		super.init_state_variables();
+		is_shared  = 1'b0;
+		pass_dirty = 1'b0;
+	endfunction : init_state_variables
+
+
 	// -- Constraints --------------------------------------------------------
 
 	// A randomized item is a master-initiated transaction unless the caller
@@ -233,10 +240,9 @@ class ovip_ace_trans extends ovip_axi_trans;
 	endfunction : log_header
 
 
-	// Carry the ACE additions across copy(). Needed because the agent installs a
-	// factory override (ovip_axi_trans -> ovip_ace_trans): the monitor's
-	// slave-response path and the scoreboard copy transactions through an
-	// ovip_axi_trans handle, so without this the ACE fields would be dropped.
+	// Carry the ACE additions across copy() and clone(), including when copied
+	// through an ovip_axi_trans base handle (monitor slave-response handoff and
+	// scoreboard defensive copies).
 	virtual function void do_copy(uvm_object rhs);
 		ovip_ace_trans that;
 		super.do_copy(rhs);

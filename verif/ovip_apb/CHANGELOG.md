@@ -9,6 +9,66 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.5.0] -- 2026-11-27
+
+### Added -- VIP
+
+- `cfg.set_check_severity(id, severity)` and `cfg.set_check_action(id, action)`
+  change how one agent reports one check. The check is named by its message
+  ID. `UVM_INFO` prints the check as a UVM_INFO line, and the action
+  `UVM_NO_ACTION` prints nothing. The agent applies the settings in
+  `connect_phase` to its monitor, its driver and its sequencer, so the
+  checks of a sequence are covered. Only the report changes: the check still
+  runs. For a bench that breaks a rule on purpose. The README section
+  "Check Reports" lists the message IDs.
+
+### Changed -- VIP
+
+- **Breaking: message IDs.** Every check has a message ID of its own, so
+  that one check can be selected by its ID. A check that shared an ID with
+  other checks has a new ID. A log filter, a `uvm_report_catcher` or a UVM
+  report override on an old ID must change.
+  - `APB_MON/FSM` is gone. Its checks are `APB_MON/FSM_ACCESS_NO_SETUP`,
+    `APB_MON/FSM_SETUP_ABORTED`, `APB_MON/FSM_SETUP_LENGTH`,
+    `APB_MON/FSM_ACCESS_ABORTED` and `APB_MON/FSM_PENABLE_HELD`.
+  - The unaligned PADDR warning of the base slave sequence was
+    `OVIP_APB/SLAVE_SEQ` and is `APB_SLAVE_SEQ/UNALIGNED_PADDR`.
+  - The master driver warnings `APB_DRV/TR_CHK` are `APB_DRV/TR_CHK/WIDTH`
+    and `APB_DRV/TR_CHK/READ_STRB`.
+  - The errors `APB_RW_SEQ` of `ovip_apb_simple_rw_seq` are
+    `APB_RW_SEQ/SLVERR` and `APB_RW_SEQ/MISMATCH`.
+  - The off-clock-edge warning of `ovip_apb_slave_driver` was `APB_SLAVE_DRV`
+    and is `APB_SLAVE_DRV/OFF_EDGE` (`APB_SLAVE_DRV` stays for `uvm_info`).
+- `ovip_apb_monitor::get()` checks `pending_rsp_req.size()` again in a loop
+  after `wait()`, before `pop_front()`, as `ovip_axi_monitor` and
+  `ovip_axi_stream_monitor` do: a guard against the queue being emptied in
+  the same time step, as when two sequences call `get()` at once.
+- `ovip_apb_monitor::send_rsp_req` and `ovip_apb_scoreboard::write_exp`
+  (`defensive_copy_expected`) clone transactions with `clone()`, and component
+  and sequence transaction creations pass their UVM context so scoped instance
+  overrides apply.
+
+### Fixed -- VIP
+
+- `ovip_apb_monitor::bus_monitor()` and `ovip_apb_slave_driver::response_driver()`
+  started on the first clock edge where `PRESETn` was sampled HIGH and waited
+  for the next edge, missing a SETUP cycle presented on that first edge. Both
+  now inspect the starting edge before waiting.
+
+### Added -- testbench
+
+- `ovip_apb_check_reports_test`: the completer config sets
+  `APB_SLAVE_SEQ/UNALIGNED_PADDR` to UVM_INFO, and a write and a read with
+  an unaligned PADDR give two UVM_INFO lines and no UVM_WARNING.
+- `ovip_apb_agent_config_test` checks that a clone carries the check report
+  settings.
+
+### Changed -- testbench
+
+- `ovip_apb_reset_on_setup_test`: a SETUP cycle presented on the first clock
+  edge where `PRESETn` is sampled HIGH is captured by both monitors and
+  answered by the completer on that transfer.
+
 ## [0.4.0] -- 2026-11-12
 
 ### Added -- VIP

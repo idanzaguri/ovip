@@ -9,6 +9,85 @@ breaks are called out explicitly in their changelog entry.
 
 ## [Unreleased]
 
+## [0.4.0] -- 2026-11-27
+
+### Added -- VIP
+
+- `cfg.set_check_severity(id, severity)` and `cfg.set_check_action(id, action)`
+  change how one agent reports one check. The check is named by its message
+  ID. `UVM_INFO` prints the check as a UVM_INFO line, and the action
+  `UVM_NO_ACTION` prints nothing. The agent applies the settings in
+  `connect_phase` to its monitor, its driver and its sequencer, so the
+  checks of a sequence are covered. Only the report changes: the check still
+  runs. For a bench that breaks a rule on purpose. The README section
+  "Check Reports" lists the message IDs.
+
+### Changed -- VIP
+
+- **Breaking: message IDs.** Every check has a message ID of its own, so
+  that one check can be selected by its ID. A check that shared an ID with
+  other checks has a new ID. A log filter, a `uvm_report_catcher` or a UVM
+  report override on an old ID must change.
+  - `AXIS_MON/RESET` is gone. A TVALID that is high during reset is
+    `AXIS_MON/VALID_IN_RESET`, and a TVALID that is high on the first clock
+    edge where ARESETn is high after a reset is
+    `AXIS_MON/VALID_AT_RESET_EXIT`.
+  - A TVALID that falls before TREADY was `AXIS_MON/STABILITY` and is
+    `AXIS_MON/VALID_DEASSERTED`. `AXIS_MON/STABILITY` stays for a payload
+    signal that changes.
+  - The warning for `put_tready_pattern` on an agent with `tready_en` 0 was
+    `AXIS_DRV/TREADY_PATTERN` and is `AXIS_DRV/TREADY_PATTERN_UNUSED`.
+    `AXIS_DRV/TREADY_PATTERN` stays for a pattern whose cycles sum to 0.
+  - The empty-item warning of `ovip_axi_stream_master_driver` was `AXIS_DRV`
+    and is `AXIS_DRV/EMPTY_ITEM` (`AXIS_DRV` stays for `uvm_info`).
+- `ovip_axi_stream_monitor::send_rsp_req`, `ovip_axi_stream_scoreboard::write_exp`
+  (`defensive_copy_expected`) and `ovip_axi_stream_simple_packet_seq` clone
+  transactions with `clone()`, and component and sequence transaction creations
+  pass their UVM context so scoped instance overrides apply.
+- CONTRIBUTING.md lists the unused `drive_reset_values_when_idle`,
+  `num_outstanding_transactions` and `tr_timeout_us` config fields, open-packet
+  reporting at end of test, and a transaction logger (`ovip_axi_stream_trans_logger`)
+  under wanted features.
+
+### Fixed -- VIP
+
+- `ovip_axi_stream_slave_driver` flushes `tready_pattern_mb` when reset is
+  asserted so a pattern queued before the reset does not survive into the
+  post-reset run (while patterns given with `put_tready_pattern` during reset
+  still play after release).
+- `ovip_axi_stream_agent_config` now implements `do_copy()`, copying every
+  field including `check_reports` so `copy()` and `clone()` preserve the
+  configuration instead of returning defaults.
+- `ovip_axi_stream_scoreboard` keys its FIFOs by `{id, dest}` (matching the
+  monitor's stream key) instead of `id` alone, and queues early actual packets
+  until their expected match arrives (reporting unmatched actuals at
+  `check_phase`, like `ovip_axi_scoreboard`) instead of raising
+  `AXIS_SB/UNEXPECTED` when `act_ap` fires before `exp_ap`.
+- `ovip_axi_stream_monitor::bus_monitor()` inspects the first clock edge where
+  `ARESETn` is sampled HIGH instead of waiting for the next edge, so a
+  transfer on that edge when `ARESETn` is HIGH from time 0 is captured.
+
+### Added -- testbench
+
+- `ovip_axi_stream_check_reports_test`: the transmitter agent reports
+  `AXIS_MON/VALID_AT_RESET_EXIT` as UVM_INFO and the receiver agent gives it
+  `UVM_NO_ACTION`; also checks that `clone()` of an
+  `ovip_axi_stream_agent_config` with all 24 fields away from their defaults
+  preserves every field.
+
+### Changed -- testbench
+
+- `ovip_axi_stream_tready_pattern_test`: pre-reset patterns waiting in
+  `tready_pattern_mb` are flushed on reset, while a pattern queued with
+  `put_tready_pattern` during reset plays after release.
+- `ovip_axi_stream_interleave_test`: interleaved streams sharing one `TID`
+  with different `TDEST` values match in both completion orders, and an actual
+  packet arriving on `act_ap` before `exp_ap` is matched when the expected
+  packet arrives.
+- `ovip_axi_stream_exit_from_reset_test`: forces `TVALID` HIGH on the wire
+  from time 0 and checks that both monitors capture a transfer on the first
+  rising clock edge (`1.0ns`).
+
 ## [0.3.0] -- 2026-11-12
 
 ### Added -- VIP

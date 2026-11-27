@@ -30,12 +30,14 @@ the same terms as the project (Apache-2.0, Section 5).
 
 ### :one: Verify the VIP *(by far the most wanted contribution)*
 
-The code compiles and the coherent-loopback example runs to `UVM_ERROR : 0`
-with its read data, its snoop and its RACK / WACK checked. An audit fixed the
-errors that the CHANGELOG lists and checked each fix with a directed test on
-Questa and on Verilator (the constraints of `ovip_ace_trans` on Verilator
-only). **Those tests are not in the repository, and there is no regression.**
-Bringing this VIP to a trustworthy state is the top priority.
+The code compiles, the coherent-loopback example runs to `UVM_ERROR : 0`, and
+`verif/ovip_ace_testbench` in [`ovip-dev`](https://github.com/idanzaguri/ovip-dev)
+runs 12 self-checking tests on Questa and Verilator covering the snoop path,
+RACK / WACK, the monitor protocol/X/Z/stability checks, mid-test reset,
+randomization constraints, mixed AXI/ACE agents, and ACE-Lite. **The VIP has
+still never been run against a real RTL ACE master or interconnect or
+waveform-reviewed by a human.** Bringing it to a sign-off-ready state is the
+top priority.
 
 **How to run what exists today:**
 
@@ -54,10 +56,11 @@ vlog -sv -mfcu -f $OVIP_ROOT/verif/ovip_ace/ovip_ace.f    # Questa/Modelsim
 
 **Concrete verification tasks, roughly in priority order:**
 
-- **Build a testbench and a regression** for ovip_ace under the standard
-  runners, so this VIP is covered the way ovip_axi is. The tasks below say
-  what the audit's directed tests covered. Each of them needs a test in the
-  repository.
+- **Test against a real RTL ACE master or interconnect and review waveforms**
+  against IHI 0022H. `verif/ovip_ace_testbench` in `ovip-dev` covers VIP-to-VIP
+  and passive-monitor stimulus under `regr_runner`, as summarized below, so
+  independent RTL interoperability and human waveform inspection are the main
+  remaining verification gaps.
 - **The snoop path.** Covered: the AC -> CR (-> CD) handshake between
   `ovip_ace_slave_driver::snoop_request_driver` and
   `ovip_ace_master_driver::snoop_phase_driver` with and without snoop data,
@@ -97,6 +100,10 @@ vlog -sv -mfcu -f $OVIP_ROOT/verif/ovip_ace/ovip_ace.f    # Questa/Modelsim
   that a test builds with AxBAR\[0\] = 1 goes on the wire with no message and
   is answered as a normal transaction. Add support if a downstream user
   needs it.
+- **CDREADY before CR on the VIP slave driver.** `snoop_request_driver` holds
+  CDREADY LOW until after the CR handshake, which D3.9 permits. An optional
+  config knob to assert CDREADY alongside CRREADY would exercise a DUT master
+  that sends CD before or with CR.
 
 ### Known gaps
 
@@ -123,11 +130,14 @@ Found by the audit, and not fixed:
   - the reset values: ACVALID, CRVALID, CDVALID, RACK and WACK LOW while
     ARESETn is LOW (D2.3.3);
   - AxCACHE against AxDOMAIN (Table D3-3);
+  - AxBAR barrier rules (for example ARSNOOP = 0b0000 and AWSNOOP = 0b000 when
+    AxBAR\[0\] = 1 in Tables D3-7 and D3-8);
   - the cache line rules on writes: the constraints of Table D3-10 on
     WriteLineUnique, WriteEvict and Evict, and those of Table D3-12 on
     WriteBack and WriteClean. The monitor checks Table D3-10 on reads only;
   - RRESP[3:2] (IsShared, PassDirty) against the responses that Table D3-15
-    permits for each read;
+    permits for each read, or that RRESP[3:2] stay constant across the beats
+    of a multi-beat read burst (D3.2.1);
   - the CRRESP rules of Table D3-22, which response a snoop may get. Only
     PassDirty without DataTransfer is checked;
   - ACADDR aligned to the width of the snoop data bus (D3.6.2);
@@ -143,6 +153,11 @@ SystemVerilog targeting **UVM 1.2**. To keep the code consistent:
 - **Indentation:** tabs (match the surrounding file).
 - **Include guards:** wrap every `.sv` include file in
   `` `ifndef <FILE>__SV `` / `` `define `` / `` `endif ``.
+- **Message IDs:** every check (a rule that is reported as `uvm_error` or
+  `uvm_warning`) has a message ID of its own. Do not give a new check the ID
+  of another check: a user selects a check by its ID
+  (`cfg.set_check_severity()`). Add the new ID to the "Check Reports" tables
+  of the README.
 - **Comments:** explain *why* something non-obvious is done. Cite the spec
   section (e.g. `D3.1.6`) for protocol rules.
 - Because the VIP is unverified, **prefer adding a check plus a test that proves

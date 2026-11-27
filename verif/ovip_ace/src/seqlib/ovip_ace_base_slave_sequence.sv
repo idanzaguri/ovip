@@ -27,8 +27,8 @@ class ovip_ace_base_slave_sequence extends ovip_axi_base_slave_sequence;
 	endfunction
 
 	// Hook: set RRESP[3:2] (IsShared / PassDirty) on a read response. Default is
-	// a clean, non-shared line. The req is an ovip_ace_trans thanks to the
-	// agent's factory override.
+	// a clean, non-shared line. The req is an ovip_ace_trans cloned from the
+	// monitor's transaction.
 	virtual function void fill_ace_read_response(ovip_ace_trans req);
 		req.is_shared  = 1'b0;
 		req.pass_dirty = 1'b0;

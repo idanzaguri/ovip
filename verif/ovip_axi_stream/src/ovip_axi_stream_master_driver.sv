@@ -129,7 +129,7 @@ task ovip_axi_stream_master_driver::tx_driver();
 		end
 		item_in_progress = 1;
 		if(req.data_beats.size() == 0)
-			`uvm_warning({MESSAGE_TAG, "AXIS_DRV"}, "received an item with no beats -- ignoring (a wire-level packet needs at least one transfer).")
+			`uvm_warning({MESSAGE_TAG, "AXIS_DRV/EMPTY_ITEM"}, "received an item with no beats -- ignoring (a wire-level packet needs at least one transfer).")
 		else
 		begin
 			void'(check_trans_validity(req));

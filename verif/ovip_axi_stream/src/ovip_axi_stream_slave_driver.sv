@@ -67,6 +67,13 @@ task ovip_axi_stream_slave_driver::run_phase(uvm_phase phase);
 			disable fork;
 		end join
 
+		// Flush any TREADY pattern queued before the reset so tready_driver()
+		// restarts from cfg.default_tready_pattern, while still keeping any
+		// pattern pushed via put_tready_pattern() during the reset below.
+		begin
+			ovip_axi_stream_ready_pattern_t _drain;
+			while(tready_pattern_mb.try_get(_drain));
+		end
 		drive_reset_values();
 		if(vif.slave_cb.aresetn == 1'b0)
 			@(vif.slave_cb iff vif.slave_cb.aresetn);
@@ -139,7 +146,7 @@ function void ovip_axi_stream_slave_driver::put_tready_pattern(int unsigned cycl
 	ovip_axi_stream_ready_pattern_t pat;
 	if(!cfg.tready_en)
 	begin
-		`uvm_warning({MESSAGE_TAG, "AXIS_DRV/TREADY_PATTERN"}, "put_tready_pattern has no effect: with tready_en=0 the receiver does not drive TREADY.")
+		`uvm_warning({MESSAGE_TAG, "AXIS_DRV/TREADY_PATTERN_UNUSED"}, "put_tready_pattern has no effect: with tready_en=0 the receiver does not drive TREADY.")
 		return;
 	end
 	pat.cycles = cycles;

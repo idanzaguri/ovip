@@ -11,7 +11,7 @@ multi-simulator UVM VIPs out there, and I think there should be.
 Same shape for every VIP added here:
 
 - Production-grade Modelsim/Questa, VCS, and Xcelium portability. Verilator
-  runs the examples and the APB and AXI test suites too; see
+  runs the examples and the test suites too; see
   [Running on Verilator](#running-on-verilator) for the requirements.
 - One compile filelist, one env var -- drops into your flow in two lines.
 - Whatever's genuinely shared between VIPs (memory models, type helpers,
@@ -25,8 +25,8 @@ Same shape for every VIP added here:
 | [`verif/ovip_axi/`](verif/ovip_axi/) | The AXI verification IP -- master + slave agents, monitor, configurable widths, sequence library. Start with the [VIP README](verif/ovip_axi/README.md). |
 | [`verif/ovip_axi_stream/`](verif/ovip_axi_stream/) | The AXI-Stream verification IP -- transmitter + receiver agents, monitor with the spec-rule checks (the AXI5-Stream parity signals are not implemented yet), scoreboard, sequence library. Covers AXI4-Stream and AXI5-Stream. Start with the [VIP README](verif/ovip_axi_stream/README.md). |
 | [`verif/ovip_apb/`](verif/ovip_apb/) | The APB verification IP -- requester + completer agents, reactive memory-backed completer, monitor with the full set of spec-rule checks, scoreboard, transaction logging, sequence library. Covers APB3 and APB4. Start with the [VIP README](verif/ovip_apb/README.md). |
-| [`verif/ovip_ace/`](verif/ovip_ace/) | **:warning: EXPERIMENTAL, AI-GENERATED, UNVERIFIED.** The ACE / ACE-Lite verification IP, built as an extension of ovip_axi. Compiles and runs coherent traffic and snoops; its fixes were checked with directed tests only, and it has no regression. Read the [VIP README](verif/ovip_ace/README.md) banner before using. |
-| [`verif/ovip_common/`](verif/ovip_common/) | Shared utilities -- memory model, common type helpers. Imported by every VIP in the family. |
+| [`verif/ovip_ace/`](verif/ovip_ace/) | **:warning: EXPERIMENTAL, AI-GENERATED, NOT HUMAN-VERIFIED.** The ACE / ACE-Lite verification IP, built as an extension of ovip_axi. Compiles and runs coherent traffic, snoops, and a 12-test VIP-level suite in `ovip-dev`, but has not been verified against real ACE RTL or reviewed by a human. Read the [VIP README](verif/ovip_ace/README.md) banner before using. |
+| [`verif/ovip_common/`](verif/ovip_common/) | Shared utilities -- memory model, check report settings, common type helpers. Imported by every VIP in the family. |
 | [`examples/ovip_axi/01_minimal_loopback/`](examples/ovip_axi/01_minimal_loopback/) | The smallest runnable example. Clone, `make`, watch `UVM_ERROR : 0`. |
 | [`examples/ovip_axi/02_out_of_order_reads/`](examples/ovip_axi/02_out_of_order_reads/) | Slave returns responses in reverse-issued order (3, 2, 1, 0). Demonstrates `rd_out_of_order_depth`, `rd_scheduling_alg`, and per-transaction `data_delay`. |
 | [`examples/ovip_axi/03_axi3_write_interleaving/`](examples/ovip_axi/03_axi3_write_interleaving/) | Two AXI3 writes whose W beats interleave on the bus; a live watcher prints `wid` per beat. Demonstrates `wr_interleave_depth` and the AXI3-only `wid` field. |
@@ -57,7 +57,7 @@ Verilator compiles and runs the VIPs. Validated on 2026-10-25:
 |---|---|---|
 | `examples/ovip_apb/01_loopback`, `examples/ovip_axi_stream/01_loopback` | 5.052 | `UVM_ERROR : 0` |
 | `examples/ovip_axi/01_minimal_loopback` | git main after 5.052 | `UVM_ERROR : 0` (5.052 miscompiles a parameterized class with a virtual-interface type parameter; fixed upstream after 5.052) |
-| `ovip_apb_testbench` (20 tests), `ovip_axi_stream_testbench` (19 tests), `ovip_axi_testbench` (63 tests) in [ovip-dev](https://github.com/idanzaguri/ovip-dev) | git main after 5.052 | all pass (run again on 2026-11-12), except the X-injection test: Verilator is 2-state |
+| `ovip_apb_testbench` (21 tests), `ovip_axi_stream_testbench` (20 tests), `ovip_ace_testbench` (12 tests), `ovip_axi_testbench` (64 tests) in [ovip-dev](https://github.com/idanzaguri/ovip-dev) | git main after 5.052 | all pass, except `ovip_axi_xz_test`: Verilator is 2-state |
 
 What you need:
 

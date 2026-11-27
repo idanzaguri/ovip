@@ -293,7 +293,7 @@ endtask : rst_monitor
 
 
 function ovip_axi_trans ovip_axi_monitor::new_transaction();
-	new_transaction = ovip_axi_trans::type_id::create($sformatf("axi_tr_%0d",++transaction_counter));
+	new_transaction = ovip_axi_trans::type_id::create($sformatf("axi_tr_%0d",++transaction_counter), this);
 	new_transaction.bus_width = cfg.bus_width;
 	//void'(begin_tr(tr));
 	// analysis_port_cont gets the item from send_new_transaction(), when its
@@ -381,14 +381,14 @@ task ovip_axi_monitor::check_that_all_valid_signals_are_low_while_reset();
 		while(vif.monitor_cb.aresetn == 0)
 		begin
 			if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE) begin
-				if(vif.monitor_cb.awvalid !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal AWVALID must be de-asserted while reset is asserted!")
-				if(vif.monitor_cb.wvalid  !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal WVALID must be de-asserted while reset is asserted!")
-				if(vif.monitor_cb.bvalid  !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal BVALID must be de-asserted while reset is asserted!")
+				if(vif.monitor_cb.awvalid !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_IN_RESET"}, "Signal AWVALID must be de-asserted while reset is asserted!")
+				if(vif.monitor_cb.wvalid  !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_IN_RESET"}, "Signal WVALID must be de-asserted while reset is asserted!")
+				if(vif.monitor_cb.bvalid  !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_IN_RESET"}, "Signal BVALID must be de-asserted while reset is asserted!")
 			end
 
 			if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE) begin
-				if(vif.monitor_cb.arvalid !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal ARVALID must be de-asserted while reset is asserted!")
-				if(vif.monitor_cb.rvalid  !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal RVALID must be de-asserted while reset is asserted!")
+				if(vif.monitor_cb.arvalid !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_IN_RESET"}, "Signal ARVALID must be de-asserted while reset is asserted!")
+				if(vif.monitor_cb.rvalid  !== 0) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_IN_RESET"}, "Signal RVALID must be de-asserted while reset is asserted!")
 			end
 			@(vif.monitor_cb);
 		end
@@ -401,14 +401,14 @@ endtask : check_that_all_valid_signals_are_low_while_reset
 // Called on that edge. Only a 1 is an error here, not an X or a Z.
 function void ovip_axi_monitor::check_that_all_valid_signals_are_low_at_reset_exit();
 	if(cfg.interface_type != OVIP_AXI_READ_ONLY_INTERFACE) begin
-		if(vif.monitor_cb.awvalid === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal AWVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
-		if(vif.monitor_cb.wvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal WVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
-		if(vif.monitor_cb.bvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal BVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.awvalid === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_AT_RESET_EXIT"}, "Signal AWVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.wvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_AT_RESET_EXIT"}, "Signal WVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.bvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_AT_RESET_EXIT"}, "Signal BVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
 	end
 
 	if(cfg.interface_type != OVIP_AXI_WRITE_ONLY_INTERFACE) begin
-		if(vif.monitor_cb.arvalid === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal ARVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
-		if(vif.monitor_cb.rvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/BAD_VALIDATOR"}, "Signal RVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.arvalid === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_AT_RESET_EXIT"}, "Signal ARVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
+		if(vif.monitor_cb.rvalid  === 1'b1) `uvm_error({MESSAGE_TAG, "AXI_MON/VALID_AT_RESET_EXIT"}, "Signal RVALID is high on the first rising clock edge after reset. It may rise only after that edge (spec A3.1.2).")
 	end
 endfunction : check_that_all_valid_signals_are_low_at_reset_exit
 
@@ -466,8 +466,7 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 	int burst_len = 1 + tr.len;
 	int burst_size = (1<<tr.size);
 
-	string error_tag = (tr.tr_type == OVIP_AXI_WRITE_TRANS)? "AXI_MON/WR" : "AXI_MON/RD";
-	error_tag = {MESSAGE_TAG, error_tag};
+	string dir = (tr.tr_type == OVIP_AXI_WRITE_TRANS)? "Write" : "Read";
 
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
@@ -479,7 +478,7 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 
 	if(burst_size > cfg.bus_width)
 	begin
-		`uvm_error(error_tag, $sformatf("Burst size(%0d) is bigger than bus width(%0d)", burst_size, cfg.bus_width))
+		`uvm_error({MESSAGE_TAG, "AXI_MON/AXSIZE"}, $sformatf("%s: Burst size(%0d) is bigger than bus width(%0d)", dir, burst_size, cfg.bus_width))
 		tr.monitor_error = 1;
 	end
 
@@ -491,14 +490,14 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 		aligned_addr &= ({`OVIP_AXI_MAX_ADDR_WIDTH{1'b1}}<<tr.size);
 		if(aligned_addr + burst_len*burst_size > `OVIP_AXI_MAX_ADDR_WIDTH'h1000)
 		begin
-			`uvm_error(error_tag, "4K boundary crossing")
+			`uvm_error({MESSAGE_TAG, "AXI_MON/BOUNDARY_4K"}, $sformatf("%s: 4K boundary crossing", dir))
 			tr.monitor_error = 1;
 		end
 		// AXI3: an INCR burst has 16 transfers at most too (spec A3.4.1). FIXED
 		// and WRAP have that limit on every protocol, checked below.
 		if(cfg.protocol_type == OVIP_PROTOCOL_AXI3 && burst_len > 16)
 		begin
-			`uvm_error(error_tag, $sformatf("The length of an AXI3 burst must not exceed 16 (actual value: %0d).", burst_len))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/AXI3_LEN"}, $sformatf("%s: The length of an AXI3 burst must not exceed 16 (actual value: %0d).", dir, burst_len))
 			tr.monitor_error = 1;
 		end
 	end
@@ -506,7 +505,7 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 	begin
 		if(burst_len > 16)
 		begin
-			`uvm_error(error_tag, $sformatf("The length of a FIXED burst must not exceed 16 (actual value: %0d).", burst_len))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/FIXED_LEN"}, $sformatf("%s: The length of a FIXED burst must not exceed 16 (actual value: %0d).", dir, burst_len))
 			tr.monitor_error = 1;
 		end
 	end
@@ -514,13 +513,13 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 	begin
 		if(tr.addr % burst_size)
 		begin
-			`uvm_error(error_tag, $sformatf("WRAP burst: start address (0x%0h) must be aligned to burst_size (%0dB).", tr.addr, burst_size))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/WRAP_ADDR"}, $sformatf("%s: WRAP burst: start address (0x%0h) must be aligned to burst_size (%0dB).", dir, tr.addr, burst_size))
 			tr.monitor_error = 1;
 		end
 
 		if( !(burst_len inside {2, 4, 8, 16}) )
 		begin
-			`uvm_error(error_tag, $sformatf("WRAP burst: length must be 2, 4, 8, or 16 transfers (actual: %0d).", burst_len))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/WRAP_LEN"}, $sformatf("%s: WRAP burst: length must be 2, 4, 8, or 16 transfers (actual: %0d).", dir, burst_len))
 			tr.monitor_error = 1;
 		end
 
@@ -531,7 +530,7 @@ function void ovip_axi_monitor::check_address_phase(ovip_axi_trans tr);
 	end
 	else // OVIP_AXI_BURST_RES
 	begin
-		`uvm_error(error_tag, "Got transaction with reserved burst type!")
+		`uvm_error({MESSAGE_TAG, "AXI_MON/BURST_RESERVED"}, $sformatf("%s: Got transaction with reserved burst type!", dir))
 		tr.monitor_error = 1;
 	end
 endfunction : check_address_phase
@@ -551,9 +550,9 @@ function void ovip_axi_monitor::check_axcache(ovip_axi_trans tr);
 	if(!(tr.axcache inside {4'b0000, 4'b0001, 4'b0010, 4'b0011, 4'b0110, 4'b0111, 4'b1010, 4'b1011, 4'b1110, 4'b1111}))
 	begin
 		if(is_write)
-			`uvm_error({MESSAGE_TAG, "AXI_MON/WR"}, $sformatf("AWCACHE=0b%04b is a reserved value on AXI4 (spec Table A4-5).", tr.axcache))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/AXCACHE_RESERVED"}, $sformatf("AWCACHE=0b%04b is a reserved value on AXI4 (spec Table A4-5).", tr.axcache))
 		else
-			`uvm_error({MESSAGE_TAG, "AXI_MON/RD"}, $sformatf("ARCACHE=0b%04b is a reserved value on AXI4 (spec Table A4-5).", tr.axcache))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/AXCACHE_RESERVED"}, $sformatf("ARCACHE=0b%04b is a reserved value on AXI4 (spec Table A4-5).", tr.axcache))
 	end
 endfunction : check_axcache
 
@@ -564,25 +563,24 @@ function void ovip_axi_monitor::check_data_phase(ovip_axi_trans tr);
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
 	begin
 		if(tr.resp == OVIP_AXI_RESP_EXOKAY)
-			`uvm_error({MESSAGE_TAG, "AXI_MON"}, "EXOKAY response is not supported on AXI4-Lite")
+			`uvm_error({MESSAGE_TAG, "AXI_MON/LITE_EXOKAY"}, "EXOKAY response is not supported on AXI4-Lite")
 		return;
 	end
 
 	begin
 		int burst_len = 1 + tr.len;
 		int num_beats = tr.burst_index;
-		string error_tag = (tr.tr_type == OVIP_AXI_WRITE_TRANS)? "AXI_MON/WR" : "AXI_MON/RD";
-		error_tag = {MESSAGE_TAG, error_tag};
+		string dir = (tr.tr_type == OVIP_AXI_WRITE_TRANS)? "Write" : "Read";
 
 		if(tr.got_last_beat && num_beats != burst_len)
 		begin
-			`uvm_error(error_tag, $sformatf("xLAST was asserted on transfer #%0d, but the address phase AxLEN indicates it should be on transfer #%0d.", num_beats, burst_len))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/XLAST_POSITION"}, $sformatf("%s: xLAST was asserted on transfer #%0d, but the address phase AxLEN indicates it should be on transfer #%0d.", dir, num_beats, burst_len))
 			tr.monitor_error = 1;
 		end
 
 		if(!tr.got_last_beat && num_beats >= burst_len)
 		begin
-			`uvm_error(error_tag, $sformatf("Missing xLAST: The expected xLAST assertion on transfer #%0d (as per AxLEN=%0d) was not observed.", num_beats, tr.len))
+			`uvm_error({MESSAGE_TAG, "AXI_MON/XLAST_MISSING"}, $sformatf("%s: Missing xLAST: The expected xLAST assertion on transfer #%0d (as per AxLEN=%0d) was not observed.", dir, num_beats, tr.len))
 			tr.monitor_error = 1;
 		end
 	end
@@ -592,7 +590,7 @@ endfunction : check_data_phase
 function void ovip_axi_monitor::check_write_response(ovip_axi_trans tr);
 
 	if(cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE && tr.resp == OVIP_AXI_RESP_EXOKAY)
-		`uvm_error({MESSAGE_TAG, "AXI_MON"}, "EXOKAY response is not supported on AXI4-Lite")
+		`uvm_error({MESSAGE_TAG, "AXI_MON/LITE_EXOKAY"}, "EXOKAY response is not supported on AXI4-Lite")
 
 endfunction : check_write_response
 
@@ -641,7 +639,7 @@ function void ovip_axi_monitor::sample_write_data(ovip_axi_trans tr);
 	// This is relevant for all beats in the case of narrow transfers,
 	// always necessary on the first beat due to potential unaligned access,
 	// and on every beat of a FIXED burst, which repeats the first beat's lanes.
-	if(tr.is_narrow_transfer || (tr.valid_address_phase && (tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED)))
+	if(tr.burst_index <= tr.len && (tr.is_narrow_transfer || (tr.valid_address_phase && (tr.burst_index == 0 || tr.burst == OVIP_AXI_BURST_FIXED))))
 	begin
 		string err_msg[$];
 		if(!tr.check_strb(tr.burst_index, tr.burst_index, err_msg))
@@ -704,7 +702,7 @@ function void ovip_axi_monitor::sample_read_data(ovip_axi_trans tr);
 	ovip_axi_data_t	rdata = vif.monitor_cb.rdata & DATA_MASK;
 	// FIXED only after an address phase: the R stability check samples into
 	// address-less items, whose burst field reads FIXED (2'b00) by default.
-	if(cfg.auto_byte_lanes_alignment && (tr.is_narrow_transfer || tr.burst_index == 0
+	if(cfg.auto_byte_lanes_alignment && tr.burst_index <= tr.len && (tr.is_narrow_transfer || tr.burst_index == 0
 			|| (tr.valid_address_phase && tr.burst == OVIP_AXI_BURST_FIXED)))
 			rdata >>= tr.transfer_starting_byte_lane[tr.burst_index]*8;
 	tr.data_beats[tr.burst_index] = rdata;
@@ -778,7 +776,7 @@ function void ovip_axi_monitor::check_wr_data_phase_post_address(ovip_axi_trans 
 
 	if(cfg.auto_byte_lanes_alignment)
 	begin
-		for(int ii=0; ii<tr.burst_index; ii++)
+		for(int ii=0; ii<=last_beat; ii++)
 		begin
 			tr.strb_beats[ii] >>= tr.transfer_starting_byte_lane[ii];
 			tr.data_beats[ii] >>= tr.transfer_starting_byte_lane[ii]*8;
@@ -1210,7 +1208,7 @@ task ovip_axi_monitor::rdata_phase_monitor();
 			// Check if the interleaved depth is exceeded.
 			rd_interleaved_ids[id] = 1;
 			if(rd_interleaved_ids.num() > cfg.rd_interleave_depth)
-				`uvm_error({MESSAGE_TAG, "AXI_MON/RDATA"}, $sformatf("Read data interleaving (%0d) exceeded the configured rd_interleave_depth (%0d).", rd_interleaved_ids.num(), cfg.rd_interleave_depth))
+				`uvm_error({MESSAGE_TAG, "AXI_MON/RD_INTERLEAVING_EXCEED"}, $sformatf("Read data interleaving (%0d) exceeded the configured rd_interleave_depth (%0d).", rd_interleaved_ids.num(), cfg.rd_interleave_depth))
 
 			if(vif.monitor_cb.rlast || cfg.protocol_type == OVIP_PROTOCOL_AXI4_LITE)
 			begin
@@ -1240,8 +1238,9 @@ endtask : rdata_phase_monitor
 
 
 function void ovip_axi_monitor::send_rsp_req(ovip_axi_trans tr);
-	ovip_axi_trans rsp_req = ovip_axi_trans::type_id::create("rsp_req");
-	rsp_req.copy(tr);
+	ovip_axi_trans rsp_req;
+	if(!$cast(rsp_req, tr.clone())) `uvm_fatal("CAST_FAILED", "ovip_axi_monitor::send_rsp_req: clone failed")
+	rsp_req.set_name("rsp_req");
 	pending_rsp_req.push_back(rsp_req);
 endfunction : send_rsp_req
 

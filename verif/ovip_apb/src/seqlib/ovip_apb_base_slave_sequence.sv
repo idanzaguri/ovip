@@ -106,7 +106,7 @@ class ovip_apb_base_slave_sequence extends uvm_sequence#(ovip_apb_trans);
 		int unsigned dw = p_sequencer.cfg.data_width;
 		ovip_apb_addr_t bus_addr = (req.addr / dw) * dw;
 		if(bus_addr != req.addr)
-			`uvm_warning("OVIP_APB/SLAVE_SEQ",
+			`uvm_warning("APB_SLAVE_SEQ/UNALIGNED_PADDR",
 				$sformatf("Unaligned PADDR 0x%0h for a %0d-byte data bus -- result is UNPREDICTABLE per spec section 2.1.1; aligning down to 0x%0h.",
 					req.addr, dw, bus_addr))
 		return bus_addr;

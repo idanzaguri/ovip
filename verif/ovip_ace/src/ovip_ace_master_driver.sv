@@ -19,6 +19,8 @@ class ovip_ace_master_driver extends ovip_axi_master_driver #(virtual ovip_ace_a
 	// Cast of the inherited cfg so ACE-specific knobs are reachable.
 	ovip_ace_agent_config ace_cfg;
 
+	ovip_ace_acaddr_t ACADDR_MASK;
+
 	`uvm_component_utils(ovip_ace_master_driver)
 
 	function new(string name = "ovip_ace_master_driver", uvm_component parent);
@@ -26,6 +28,7 @@ class ovip_ace_master_driver extends ovip_axi_master_driver #(virtual ovip_ace_a
 	endfunction : new
 
 	extern virtual function void build_phase(uvm_phase phase);
+	extern virtual task run_phase(uvm_phase phase);
 
 	// Reset value driving
 	extern virtual function void drive_reset_values();
@@ -62,6 +65,12 @@ function void ovip_ace_master_driver::build_phase(uvm_phase phase);
 	if(!$cast(ace_cfg, cfg))
 		`uvm_fatal("ACE_DRV", "Master driver cfg must be an ovip_ace_agent_config")
 endfunction : build_phase
+
+
+task ovip_ace_master_driver::run_phase(uvm_phase phase);
+	ACADDR_MASK = (ovip_ace_acaddr_t'(1) << ace_cfg.acaddr_width) - 1;
+	super.run_phase(phase);
+endtask : run_phase
 
 
 function void ovip_ace_master_driver::drive_reset_values();
@@ -110,6 +119,12 @@ function void ovip_ace_master_driver::drive_ar_channel(ovip_axi_trans tr);
 		vif.master_cb.arsnoop  <= ace_tr.snoop;
 		vif.master_cb.arbar    <= ace_tr.bar;
 	end
+	else
+	begin
+		vif.master_cb.ardomain <= 2'b0;
+		vif.master_cb.arsnoop  <= 4'b0;
+		vif.master_cb.arbar    <= 2'b0;
+	end
 endfunction : drive_ar_channel
 
 
@@ -122,6 +137,13 @@ function void ovip_ace_master_driver::drive_aw_channel(ovip_axi_trans tr);
 		vif.master_cb.awsnoop  <= ace_tr.snoop[2:0];
 		vif.master_cb.awbar    <= ace_tr.bar;
 		vif.master_cb.awunique <= ace_tr.awunique;
+	end
+	else
+	begin
+		vif.master_cb.awdomain <= 2'b0;
+		vif.master_cb.awsnoop  <= 3'b0;
+		vif.master_cb.awbar    <= 2'b0;
+		vif.master_cb.awunique <= 1'b0;
 	end
 endfunction : drive_aw_channel
 
@@ -161,11 +183,11 @@ task ovip_ace_master_driver::snoop_phase_driver();
 
 		// Build a snoop trans capturing the request, then let the test
 		// policy hook decide the response.
-		snoop_tr = ovip_ace_trans::type_id::create("snoop_tr");
+		snoop_tr = ovip_ace_trans::type_id::create("snoop_tr", this);
 		snoop_tr.direction    = OVIP_ACE_SNOOP;
-		snoop_tr.snoop_addr   = vif.monitor_cb.acaddr;
-		snoop_tr.acsnoop_code = vif.monitor_cb.acsnoop;
-		snoop_tr.acprot       = vif.monitor_cb.acprot;
+		snoop_tr.snoop_addr   = vif.master_cb.acaddr & ACADDR_MASK;
+		snoop_tr.acsnoop_code = vif.master_cb.acsnoop;
+		snoop_tr.acprot       = vif.master_cb.acprot;
 		build_snoop_response(snoop_tr);
 
 		// DataTransfer promises a full cache line on CD. A response that
